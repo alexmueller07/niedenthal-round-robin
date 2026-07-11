@@ -2,9 +2,22 @@ import { requireAdminPage } from "@/lib/admin-guard";
 import { loadFullState } from "@/lib/snapshot";
 import RaGrid from "./RaGrid";
 import RaManager from "./RaManager";
-import SlotCreateForm from "./SlotCreateForm";
+import SlotCreatePanel from "./SlotCreatePanel";
 
 export const dynamic = "force-dynamic";
+
+/** How far ahead the drag calendar lets RAs post slots. */
+const CALENDAR_DAYS = 21;
+
+function upcomingDates(from: string, count: number): string[] {
+  const [y, m, d] = from.split("-").map(Number);
+  return Array.from({ length: count }, (_, i) => {
+    const day = new Date(y, m - 1, d + i);
+    return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(
+      day.getDate()
+    ).padStart(2, "0")}`;
+  });
+}
 
 export default async function SlotsPage() {
   await requireAdminPage();
@@ -27,16 +40,12 @@ export default async function SlotsPage() {
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <section className="card p-6">
-          <h2 className="mb-4 font-bold">New session slot</h2>
-          <SlotCreateForm />
-        </section>
-        <section className="card p-6">
-          <h2 className="mb-4 font-bold">Research assistants</h2>
-          <RaManager ras={ras} />
-        </section>
-      </div>
+      <SlotCreatePanel dates={upcomingDates(snapshot.today, CALENDAR_DAYS)} />
+
+      <section className="card p-6">
+        <h2 className="mb-4 font-bold">Research assistants</h2>
+        <RaManager ras={ras} />
+      </section>
 
       <section>
         <h2 className="mb-3 text-lg font-bold">RA coverage</h2>

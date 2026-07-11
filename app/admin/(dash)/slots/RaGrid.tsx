@@ -126,7 +126,8 @@ export default function RaGrid({ slots, ras, availability, minRas }: RaGridProps
       {ras.length === 0 && (
         <p className="border-t border-line p-4 text-sm text-amber-700">
           Add RAs above to mark coverage — slots without {minRas} RA
-          {minRas === 1 ? "" : "s"} won&apos;t be scheduled.
+          {minRas === 1 ? "" : "s"}
+          {" won't be scheduled."}
         </p>
       )}
     </div>

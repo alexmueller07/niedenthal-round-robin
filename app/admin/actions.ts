@@ -27,6 +27,7 @@ import {
   setSlotStatus,
   updateSetting,
 } from "@/lib/db";
+import { splitIntoSessions, type TimeBlock } from "@/lib/availability";
 import { baseUrl, sendEmail } from "@/lib/email";
 import { alternateToPromote, attendedRoster, isLive, propose } from "@/lib/engine";
 import { formatDate, formatTimeRange } from "@/lib/format";
@@ -90,6 +91,51 @@ export async function createSlotsAction(formData: FormData): Promise<{ error?: s
 
   refreshAdmin();
   return {};
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^\d{2}:\d{2}$/;
+
+/**
+ * Drag-calendar slot creation: painted blocks are split into back-to-back
+ * sessions of `sessionMinutes` and each becomes a slot.
+ */
+export async function createSlotsFromBlocksAction(
+  blocks: TimeBlock[],
+  sessionMinutes: number
+): Promise<{ created: number; error?: string }> {
+  await requireAdmin();
+
+  if (
+    !Array.isArray(blocks) ||
+    blocks.length > 500 ||
+    blocks.some(
+      (b) =>
+        !DATE_RE.test(b.date) ||
+        !TIME_RE.test(b.startTime) ||
+        !TIME_RE.test(b.endTime) ||
+        b.endTime <= b.startTime
+    )
+  ) {
+    return { created: 0, error: "Invalid selection." };
+  }
+  if (!Number.isFinite(sessionMinutes) || sessionMinutes < 30 || sessionMinutes > 360) {
+    return { created: 0, error: "Invalid session length." };
+  }
+
+  const sessions = splitIntoSessions(blocks, sessionMinutes);
+  if (sessions.length === 0) {
+    return {
+      created: 0,
+      error: "No painted block is long enough for a full session.",
+    };
+  }
+
+  for (const s of sessions) {
+    await createSlot({ date: s.date, startTime: s.startTime, endTime: s.endTime });
+  }
+  refreshAdmin();
+  return { created: sessions.length };
 }
 
 export async function cancelSlotAction(slotId: string): Promise<void> {
