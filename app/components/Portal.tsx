@@ -143,8 +143,8 @@ export default function Portal({ participant, slots, availability, assignments }
           {live.length > 0 ? "Availability for future sessions" : "When could you come in?"}
         </h2>
         <p className="mt-1 mb-5 text-sm text-ink-soft">
-          Select <span className="font-semibold text-ink">every</span> time you could
-          attend — only mark times you&apos;re certain about. Sessions last about 2 hours.
+          Select <span className="font-semibold text-ink">every</span>
+          {" time "}you could attend — only mark times you&apos;re certain about. Sessions last about 2 hours.
         </p>
 
         {byDate.length === 0 ? (
