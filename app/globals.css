@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+/* Niedenthal Lab design tokens — UW–Madison badger red on warm paper. */
+@theme {
+  --color-badger: #c5050c;
+  --color-badger-deep: #9b0000;
+  --color-badger-soft: #fdf0f0;
+  --color-paper: #faf9f7;
+  --color-ink: #1c1917;
+  --color-ink-soft: #57534e;
+  --color-line: #e7e5e4;
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-line bg-white shadow-[0_1px_3px_rgba(28,25,23,0.06)];
+  }
+
+  .btn-primary,
+  .btn-ghost,
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-badger disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply bg-badger text-white hover:bg-badger-deep;
+  }
+
+  .btn-ghost {
+    @apply border border-line bg-white text-ink hover:border-stone-400;
+  }
+
+  .btn-danger {
+    @apply border border-red-200 bg-white text-badger hover:bg-badger-soft;
+  }
+
+  .input {
+    @apply w-full rounded-xl border border-line bg-white px-4 py-2.5 text-ink placeholder:text-stone-400 focus:border-badger focus:outline-none;
+  }
+
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-ink-soft;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold;
+  }
+}
