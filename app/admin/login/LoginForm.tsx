@@ -27,6 +27,7 @@ export default function LoginForm() {
         required
         autoFocus
         className="input"
+        // ADD Flex time and solid time separate login accoutns for each RA. RAs submit sceduels with same style as users and then do a comparison optimization DFS search to overlay valid scedule times. 
       />
       {error && (
         <p className="mt-3 rounded-xl bg-badger-soft px-4 py-2.5 text-sm text-badger">
