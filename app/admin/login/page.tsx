@@ -12,7 +12,7 @@ export default async function AdminLoginPage() {
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-badger">
-            Niedenthal Emotions Lab
+            Niedenthal Lab
           </p>
           <h1 className="mt-3 text-2xl font-bold tracking-tight">RA Dashboard</h1>
         </div>

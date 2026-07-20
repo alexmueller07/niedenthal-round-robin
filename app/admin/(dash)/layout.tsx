@@ -4,7 +4,7 @@ import { logoutAdmin } from "../actions";
 
 const NAV = [
   { href: "/admin", label: "Board" },
-  { href: "/admin/slots", label: "Slots & RAs" },
+  { href: "/admin/slots", label: "Shifts & RAs" },
   { href: "/admin/schedule", label: "Scheduler" },
   { href: "/admin/participants", label: "Participants" },
   { href: "/admin/emails", label: "Emails" },

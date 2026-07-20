@@ -26,13 +26,15 @@ export async function GET(
   ]);
   const participantById = new Map(participants.map((p) => [p.id, p]));
 
-  const header = "email,full_name,role,status,session_date,session_start,session_end";
+  const header =
+    "email,netid,full_name,role,status,session_date,session_start,session_end";
   const lines = assignments.flatMap((a) => {
     const p = participantById.get(a.participantId);
     if (!p) return [];
     return [
       [
         csvEscape(p.email),
+        csvEscape(p.netid ?? ""),
         csvEscape(p.fullName),
         a.role,
         a.status,

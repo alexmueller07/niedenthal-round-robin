@@ -50,6 +50,10 @@ export default function SlotCreateForm() {
           </label>
           <input id="endTime" name="endTime" type="time" required className="input" />
         </div>
+        <label className="col-span-2 flex items-center gap-2 text-sm text-ink-soft">
+          <input type="checkbox" name="preferred" className="h-4 w-4 accent-badger" />
+          Mark as a preferred time (shown first to participants)
+        </label>
       </div>
       {error && (
         <p className="rounded-xl bg-badger-soft px-4 py-2.5 text-sm text-badger">{error}</p>

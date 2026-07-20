@@ -11,7 +11,7 @@ export interface EmailContent {
   body: string;
 }
 
-const SIGNATURE = `\n\nThank you,\nNiedenthal Emotions Lab\nUniversity of Wisconsin–Madison`;
+const SIGNATURE = `\n\nThank you,\nNiedenthal Lab\nUniversity of Wisconsin–Madison`;
 
 const LOCATION =
   "Brogden Psychology Building, 1202 W Johnson St — follow the posted signs to the orientation room.";

@@ -14,7 +14,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     <main className="flex flex-1 items-center justify-center px-4 py-12">
       <div className="w-full max-w-md text-center">
         <p className="mb-6 text-sm font-semibold uppercase tracking-[0.2em] text-badger">
-          Niedenthal Emotions Lab
+          Niedenthal Lab
         </p>
         {children}
         <p className="mt-8 text-sm text-stone-500">

@@ -37,11 +37,20 @@ export default function ParticipantRow({
     <tr>
       <td className="p-4">
         <p className="font-medium">{participant.fullName}</p>
-        <p className="text-stone-400">{participant.email}</p>
+        <p className="text-stone-400">
+          {participant.email}
+          {participant.netid && (
+            <span className="ml-2 text-stone-400">· {participant.netid}</span>
+          )}
+        </p>
       </td>
       <td className="p-4">
         {availability > 0 ? (
           `${availability} slot${availability === 1 ? "" : "s"}`
+        ) : participant.declinedAll ? (
+          <span className="text-badger" title="Tapped “none of these times work for me”">
+            no times work
+          </span>
         ) : (
           <span className="text-amber-700">none yet</span>
         )}

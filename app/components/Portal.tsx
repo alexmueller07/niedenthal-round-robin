@@ -1,11 +1,19 @@
 "use client";
 
 // Signed-in participant portal: current session status + availability editor.
+// The editor narrows choice (preferred times first, the rest collapsed), nudges
+// momentum with a subtle "filling up" hint, and always offers an explicit
+// "none of these work" escape so nobody leaves their availability blank.
 
 import { useMemo, useState, useTransition } from "react";
 import type { Assignment, Participant, Slot } from "@/lib/types";
 import { formatDate, formatTimeRange } from "@/lib/format";
-import { confirmMyAssignment, saveAvailability, signOutParticipant } from "../actions";
+import {
+  confirmMyAssignment,
+  declineAllTimes,
+  saveAvailability,
+  signOutParticipant,
+} from "../actions";
 
 interface PortalProps {
   participant: Participant;
@@ -15,12 +23,25 @@ interface PortalProps {
   availability: string[];
   /** The participant's assignments joined with their slots. */
   assignments: Array<{ assignment: Assignment; slot: Slot }>;
+  /** Live member seats already taken per slot (momentum nudge). */
+  fillBySlot: Record<string, number>;
+  /** Group size needed for a session to run. */
+  groupTarget: number;
 }
 
-export default function Portal({ participant, slots, availability, assignments }: PortalProps) {
+export default function Portal({
+  participant,
+  slots,
+  availability,
+  assignments,
+  fillBySlot,
+  groupTarget,
+}: PortalProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set(availability));
   const [saved, setSaved] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
+  const [declined, setDeclined] = useState(participant.declinedAll);
+  const [showMore, setShowMore] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const live = assignments.filter(
@@ -28,15 +49,23 @@ export default function Portal({ participant, slots, availability, assignments }
   );
   const past = assignments.filter((a) => a.assignment.status === "attended");
 
-  const byDate = useMemo(() => {
-    const groups = new Map<string, Slot[]>();
-    for (const slot of slots) {
-      const list = groups.get(slot.date) ?? [];
-      list.push(slot);
-      groups.set(slot.date, list);
-    }
-    return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const { preferred, other } = useMemo(() => {
+    const groupByDate = (list: Slot[]) => {
+      const groups = new Map<string, Slot[]>();
+      for (const slot of list) {
+        const day = groups.get(slot.date) ?? [];
+        day.push(slot);
+        groups.set(slot.date, day);
+      }
+      return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+    };
+    return {
+      preferred: groupByDate(slots.filter((s) => s.preferred)),
+      other: groupByDate(slots.filter((s) => !s.preferred)),
+    };
   }, [slots]);
+
+  const hasPreferred = preferred.length > 0;
 
   const toggle = (slotId: string) => {
     setSelected((prev) => {
@@ -46,15 +75,37 @@ export default function Portal({ participant, slots, availability, assignments }
       return next;
     });
     setSaved(false);
+    setDeclined(false);
     setMessage(null);
   };
 
   const handleSave = () => {
+    if (selected.size === 0) {
+      setMessage(
+        "Please select at least one time — or tap “None of these times work for me” below."
+      );
+      return;
+    }
     startTransition(async () => {
       const result = await saveAvailability([...selected]);
       if (result.ok) {
         setSaved(true);
+        setDeclined(false);
         setMessage("Availability saved. We'll email you when you're scheduled.");
+      } else {
+        setMessage(result.error ?? "Something went wrong.");
+      }
+    });
+  };
+
+  const handleDecline = () => {
+    startTransition(async () => {
+      const result = await declineAllTimes();
+      if (result.ok) {
+        setSelected(new Set());
+        setSaved(true);
+        setDeclined(true);
+        setMessage(null);
       } else {
         setMessage(result.error ?? "Something went wrong.");
       }
@@ -67,12 +118,36 @@ export default function Portal({ participant, slots, availability, assignments }
     });
   };
 
+  const renderDayGroups = (groups: Array<[string, Slot[]]>) => (
+    <div className="space-y-6">
+      {groups.map(([date, daySlots]) => (
+        <div key={date}>
+          <h3 className="mb-2.5 text-sm font-semibold uppercase tracking-wide text-ink-soft">
+            {formatDate(date)}
+          </h3>
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            {daySlots.map((slot) => (
+              <SlotOption
+                key={slot.id}
+                slot={slot}
+                active={selected.has(slot.id)}
+                filled={fillBySlot[slot.id] ?? 0}
+                target={groupTarget}
+                onToggle={() => toggle(slot.id)}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 sm:py-12">
       <header className="mb-8 flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-badger">
-            Niedenthal Emotions Lab
+            Niedenthal Lab
           </p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
             Hi, {participant.fullName.split(" ")[0]}
@@ -137,66 +212,74 @@ export default function Portal({ participant, slots, availability, assignments }
         </section>
       )}
 
+      {live.length === 0 && declined && (
+        <section className="card mb-8 border-badger/30 bg-badger-soft p-6">
+          <p className="font-semibold">Thanks for letting us know.</p>
+          <p className="mt-1 text-sm text-ink-soft">
+            We&apos;ll reach out when new times open up. If your schedule changes, mark
+            any time below and we&apos;ll match you right away.
+          </p>
+        </section>
+      )}
+
       {/* Availability editor */}
       <section>
         <h2 className="text-lg font-bold">
           {live.length > 0 ? "Availability for future sessions" : "When could you come in?"}
         </h2>
         <p className="mt-1 mb-5 text-sm text-ink-soft">
-          Select <span className="font-semibold text-ink">every</span>
-          {" time "}you could attend — only mark times you&apos;re certain about. Sessions last about 2 hours.
+          Tap <span className="font-semibold text-ink">every</span> time you could attend —
+          only mark times you&apos;re certain about. Sessions last about 2 hours.
         </p>
 
-        {byDate.length === 0 ? (
+        {slots.length === 0 ? (
           <div className="card p-6 text-ink-soft">
             No session times are posted yet. Check back soon — we&apos;ll also email you
             when new times open up.
           </div>
         ) : (
-          <div className="space-y-6">
-            {byDate.map(([date, daySlots]) => (
-              <div key={date}>
-                <h3 className="mb-2.5 text-sm font-semibold uppercase tracking-wide text-ink-soft">
-                  {formatDate(date)}
-                </h3>
-                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                  {daySlots.map((slot) => {
-                    const active = selected.has(slot.id);
-                    return (
-                      <button
-                        key={slot.id}
-                        type="button"
-                        onClick={() => toggle(slot.id)}
-                        aria-pressed={active}
-                        className={`flex items-center justify-between rounded-xl border px-4 py-3.5 text-left transition-all ${
-                          active
-                            ? "border-badger bg-badger-soft shadow-[inset_0_0_0_1px_#c5050c]"
-                            : "border-line bg-white hover:border-stone-400"
-                        }`}
-                      >
-                        <span className="font-medium">
-                          {formatTimeRange(slot.startTime, slot.endTime)}
-                        </span>
-                        <span
-                          aria-hidden
-                          className={`flex h-5 w-5 items-center justify-center rounded-full border-2 text-[11px] font-bold ${
-                            active
-                              ? "border-badger bg-badger text-white"
-                              : "border-stone-300 text-transparent"
-                          }`}
-                        >
-                          ✓
-                        </span>
-                      </button>
-                    );
-                  })}
+          <div className="space-y-8">
+            {hasPreferred && (
+              <div>
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="text-amber-500">★</span>
+                  <h3 className="text-sm font-bold uppercase tracking-wide">
+                    Recommended times
+                  </h3>
                 </div>
+                {renderDayGroups(preferred)}
               </div>
-            ))}
+            )}
+
+            {other.length > 0 &&
+              (hasPreferred ? (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setShowMore((v) => !v)}
+                    className="mb-3 text-sm font-semibold text-badger underline-offset-4 hover:underline"
+                    aria-expanded={showMore}
+                  >
+                    {showMore ? "Hide other times" : "Show other times"}
+                  </button>
+                  {showMore && renderDayGroups(other)}
+                </div>
+              ) : (
+                renderDayGroups(other)
+              ))}
+
+            <button
+              type="button"
+              onClick={handleDecline}
+              disabled={pending}
+              className="w-full rounded-xl border border-dashed border-line py-3 text-sm font-medium text-stone-500 transition-colors hover:border-stone-400 hover:text-ink"
+            >
+              None of these times work for me
+            </button>
           </div>
         )}
 
-        {byDate.length > 0 && (
+        {slots.length > 0 && (
           <div className="sticky bottom-4 mt-8">
             <div className="card flex items-center justify-between gap-4 p-4">
               <p className="text-sm text-ink-soft">
@@ -233,5 +316,60 @@ export default function Portal({ participant, slots, availability, assignments }
         </section>
       )}
     </main>
+  );
+}
+
+/** One availability option with a subtle, non-revealing "filling up" nudge. */
+function SlotOption({
+  slot,
+  active,
+  filled,
+  target,
+  onToggle,
+}: {
+  slot: Slot;
+  active: boolean;
+  filled: number;
+  target: number;
+  onToggle: () => void;
+}) {
+  // Never reveal exact capacity or standby math — only momentum toward "on".
+  const nudge =
+    filled <= 0
+      ? null
+      : filled >= target
+        ? { text: "On to run", tone: "text-green-700" }
+        : { text: `Filling up · ${filled}/${target}`, tone: "text-amber-700" };
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={active}
+      className={`flex items-center justify-between rounded-xl border px-4 py-3.5 text-left transition-all ${
+        active
+          ? "border-badger bg-badger-soft shadow-[inset_0_0_0_1px_#c5050c]"
+          : "border-line bg-white hover:border-stone-400"
+      }`}
+    >
+      <span>
+        <span className="block font-medium">
+          {formatTimeRange(slot.startTime, slot.endTime)}
+        </span>
+        {nudge && (
+          <span className={`mt-0.5 block text-xs font-medium ${nudge.tone}`}>{nudge.text}</span>
+        )}
+      </span>
+      <span
+        aria-hidden
+        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-bold ${
+          active
+            ? "border-badger bg-badger text-white"
+            : "border-stone-300 text-transparent"
+        }`}
+      >
+        ✓
+      </span>
+    </button>
   );
 }

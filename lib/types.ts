@@ -22,13 +22,36 @@ export interface Participant {
   id: string;
   email: string;
   fullName: string;
+  /** UW NetID (lowercased), captured at sign-in. Nullable for pre-NetID rows. */
+  netid: string | null;
   status: ParticipantStatus;
+  /** True when the participant tapped "none of these times work for me". */
+  declinedAll: boolean;
   createdAt: string;
 }
 
 export interface Ra {
   id: string;
   name: string;
+  active: boolean;
+}
+
+/** 0 = Sunday … 6 = Saturday, matching JS Date.getDay(). */
+export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
+/**
+ * A recurring weekly shift template. RAs are assigned to these once for the
+ * semester (the "employee shift" model); dated `slots` are generated from the
+ * active shifts across the semester date range.
+ */
+export interface WeeklyShift {
+  id: string;
+  weekday: Weekday;
+  startTime: string;
+  endTime: string;
+  roomCount: number;
+  /** Surfaced first to participants ("preferred times"). */
+  preferred: boolean;
   active: boolean;
 }
 
@@ -40,6 +63,10 @@ export interface Slot {
   roomCount: number;
   status: SlotStatus;
   followUpOf: string | null;
+  /** The weekly shift this slot was generated from, if any. */
+  shiftId: string | null;
+  /** Denormalized from the shift at generation time; drives portal ordering. */
+  preferred: boolean;
   notes: string;
 }
 
@@ -71,6 +98,9 @@ export interface Settings {
   overrecruit: number;
   minRas: number;
   seed: number;
+  /** Semester window the generator fills with dated slots ("YYYY-MM-DD"). */
+  semesterStart: string;
+  semesterEnd: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -79,4 +109,6 @@ export const DEFAULT_SETTINGS: Settings = {
   overrecruit: 2,
   minRas: 2,
   seed: 20260711,
+  semesterStart: "2026-09-02",
+  semesterEnd: "2026-12-11",
 };

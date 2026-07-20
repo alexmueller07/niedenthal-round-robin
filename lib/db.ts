@@ -15,6 +15,8 @@ import type {
   Settings,
   Slot,
   SlotStatus,
+  Weekday,
+  WeeklyShift,
 } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 
@@ -45,13 +47,27 @@ function toParticipant(r: Row): Participant {
     id: asString(r.id),
     email: asString(r.email),
     fullName: asString(r.full_name),
+    netid: r.netid == null || r.netid === "" ? null : asString(r.netid),
     status: asString(r.status) as ParticipantStatus,
+    declinedAll: Boolean(r.declined_all),
     createdAt: asTimestamp(r.created_at),
   };
 }
 
 function toRa(r: Row): Ra {
   return { id: asString(r.id), name: asString(r.name), active: Boolean(r.active) };
+}
+
+function toWeeklyShift(r: Row): WeeklyShift {
+  return {
+    id: asString(r.id),
+    weekday: Number(r.weekday) as Weekday,
+    startTime: asString(r.start_time),
+    endTime: asString(r.end_time),
+    roomCount: Number(r.room_count),
+    preferred: Boolean(r.preferred),
+    active: Boolean(r.active),
+  };
 }
 
 function toSlot(r: Row): Slot {
@@ -63,6 +79,8 @@ function toSlot(r: Row): Slot {
     roomCount: Number(r.room_count),
     status: asString(r.status) as SlotStatus,
     followUpOf: r.follow_up_of === null ? null : asString(r.follow_up_of),
+    shiftId: r.shift_id == null ? null : asString(r.shift_id),
+    preferred: Boolean(r.preferred),
     notes: asString(r.notes ?? ""),
   };
 }
@@ -97,19 +115,30 @@ function toEmailLogEntry(r: Row): EmailLogEntry {
 
 export async function upsertParticipant(
   email: string,
-  fullName: string
+  fullName: string,
+  netid: string | null = null
 ): Promise<Participant> {
   const sql = getSql();
+  const cleanNetid = netid ? netid.trim().toLowerCase() : null;
   const rows = await sql`
-    INSERT INTO participants (email, full_name)
-    VALUES (${email.trim().toLowerCase()}, ${fullName.trim()})
+    INSERT INTO participants (email, full_name, netid)
+    VALUES (${email.trim().toLowerCase()}, ${fullName.trim()}, ${cleanNetid})
     ON CONFLICT (email) DO UPDATE
       SET full_name = CASE
         WHEN EXCLUDED.full_name <> '' THEN EXCLUDED.full_name
         ELSE participants.full_name
-      END
+      END,
+      netid = COALESCE(NULLIF(EXCLUDED.netid, ''), participants.netid)
     RETURNING *;`;
   return toParticipant(rows[0]);
+}
+
+export async function setParticipantDeclinedAll(
+  id: string,
+  declined: boolean
+): Promise<void> {
+  const sql = getSql();
+  await sql`UPDATE participants SET declined_all = ${declined} WHERE id = ${id};`;
 }
 
 export async function getParticipantByEmail(email: string): Promise<Participant | null> {
@@ -161,6 +190,75 @@ export async function setRaActive(id: string, active: boolean): Promise<void> {
   await sql`UPDATE ras SET active = ${active} WHERE id = ${id};`;
 }
 
+// -------------------------------------------------------------- weekly shifts
+
+export async function listWeeklyShifts(): Promise<WeeklyShift[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT * FROM weekly_shifts ORDER BY weekday, start_time;`;
+  return rows.map(toWeeklyShift);
+}
+
+export async function createWeeklyShift(input: {
+  weekday: Weekday;
+  startTime: string;
+  endTime: string;
+  roomCount?: number;
+  preferred?: boolean;
+}): Promise<WeeklyShift> {
+  const sql = getSql();
+  const rows = await sql`
+    INSERT INTO weekly_shifts (weekday, start_time, end_time, room_count, preferred)
+    VALUES (${input.weekday}, ${input.startTime}, ${input.endTime},
+            ${input.roomCount ?? 3}, ${input.preferred ?? false})
+    ON CONFLICT (weekday, start_time) DO UPDATE
+      SET end_time = EXCLUDED.end_time,
+          room_count = EXCLUDED.room_count,
+          preferred = EXCLUDED.preferred,
+          active = TRUE
+    RETURNING *;`;
+  return toWeeklyShift(rows[0]);
+}
+
+export async function setWeeklyShiftActive(id: string, active: boolean): Promise<void> {
+  const sql = getSql();
+  await sql`UPDATE weekly_shifts SET active = ${active} WHERE id = ${id};`;
+}
+
+export async function setWeeklyShiftPreferred(
+  id: string,
+  preferred: boolean
+): Promise<void> {
+  const sql = getSql();
+  await sql`UPDATE weekly_shifts SET preferred = ${preferred} WHERE id = ${id};`;
+}
+
+export async function deleteWeeklyShift(id: string): Promise<void> {
+  const sql = getSql();
+  await sql`DELETE FROM weekly_shifts WHERE id = ${id};`;
+}
+
+export async function listRaShifts(): Promise<Array<{ raId: string; shiftId: string }>> {
+  const sql = getSql();
+  const rows = await sql`SELECT ra_id, shift_id FROM ra_shifts;`;
+  return rows.map((r) => ({ raId: asString(r.ra_id), shiftId: asString(r.shift_id) }));
+}
+
+export async function setRaShift(
+  raId: string,
+  shiftId: string,
+  assigned: boolean
+): Promise<void> {
+  const sql = getSql();
+  if (assigned) {
+    await sql`
+      INSERT INTO ra_shifts (ra_id, shift_id) VALUES (${raId}, ${shiftId})
+      ON CONFLICT DO NOTHING;`;
+  } else {
+    await sql`DELETE FROM ra_shifts WHERE ra_id = ${raId} AND shift_id = ${shiftId};`;
+  }
+}
+
 // ---------------------------------------------------------------------- slots
 
 export async function createSlot(input: {
@@ -169,16 +267,46 @@ export async function createSlot(input: {
   endTime: string;
   roomCount?: number;
   followUpOf?: string | null;
+  shiftId?: string | null;
+  preferred?: boolean;
   notes?: string;
 }): Promise<Slot> {
   const sql = getSql();
   const rows = await sql`
-    INSERT INTO slots (date, start_time, end_time, room_count, follow_up_of, notes)
+    INSERT INTO slots (date, start_time, end_time, room_count, follow_up_of, shift_id, preferred, notes)
     VALUES (${input.date}, ${input.startTime}, ${input.endTime},
-            ${input.roomCount ?? 3}, ${input.followUpOf ?? null}, ${input.notes ?? ""})
-    ON CONFLICT (date, start_time) DO UPDATE SET end_time = EXCLUDED.end_time
+            ${input.roomCount ?? 3}, ${input.followUpOf ?? null},
+            ${input.shiftId ?? null}, ${input.preferred ?? false}, ${input.notes ?? ""})
+    ON CONFLICT (date, start_time) DO UPDATE
+      SET end_time = EXCLUDED.end_time,
+          shift_id = COALESCE(slots.shift_id, EXCLUDED.shift_id),
+          preferred = slots.preferred OR EXCLUDED.preferred
     RETURNING *;`;
   return toSlot(rows[0]);
+}
+
+/** Bulk slot insert for semester generation. Returns how many rows were new. */
+export async function createSlotsBulk(
+  slots: ReadonlyArray<{
+    date: string;
+    startTime: string;
+    endTime: string;
+    roomCount: number;
+    shiftId: string;
+    preferred: boolean;
+  }>
+): Promise<number> {
+  const sql = getSql();
+  let created = 0;
+  for (const s of slots) {
+    const rows = await sql`
+      INSERT INTO slots (date, start_time, end_time, room_count, shift_id, preferred)
+      VALUES (${s.date}, ${s.startTime}, ${s.endTime}, ${s.roomCount}, ${s.shiftId}, ${s.preferred})
+      ON CONFLICT (date, start_time) DO NOTHING
+      RETURNING id;`;
+    if (rows.length > 0) created += 1;
+  }
+  return created;
 }
 
 export async function listSlots(): Promise<Slot[]> {
@@ -284,6 +412,18 @@ export async function listAssignmentsForParticipant(
   return rows.map(toAssignment);
 }
 
+/** Live member seats taken per slot — drives the portal's "filling up" nudge. */
+export async function getLiveMemberCountsBySlot(): Promise<Record<string, number>> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT slot_id, COUNT(*)::int AS n FROM assignments
+    WHERE status IN ('invited', 'confirmed') AND role = 'member'
+    GROUP BY slot_id;`;
+  const out: Record<string, number> = {};
+  for (const r of rows) out[asString(r.slot_id)] = Number(r.n);
+  return out;
+}
+
 export async function createAssignment(
   participantId: string,
   slotId: string,
@@ -353,12 +493,18 @@ export async function getSettings(): Promise<Settings> {
     const parsed = raw === undefined ? NaN : Number(raw);
     return Number.isFinite(parsed) ? parsed : fallback;
   };
+  const date = (key: string, fallback: string): string => {
+    const raw = map.get(key);
+    return raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : fallback;
+  };
   return {
     groupMin: num("group_min", DEFAULT_SETTINGS.groupMin),
     groupMax: num("group_max", DEFAULT_SETTINGS.groupMax),
     overrecruit: num("overrecruit", DEFAULT_SETTINGS.overrecruit),
     minRas: num("min_ras", DEFAULT_SETTINGS.minRas),
     seed: num("seed", DEFAULT_SETTINGS.seed),
+    semesterStart: date("semester_start", DEFAULT_SETTINGS.semesterStart),
+    semesterEnd: date("semester_end", DEFAULT_SETTINGS.semesterEnd),
   };
 }
 

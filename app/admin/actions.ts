@@ -15,29 +15,38 @@ import {
   createAssignment,
   createRa,
   createSlot,
+  createSlotsBulk,
+  createWeeklyShift,
+  deleteWeeklyShift,
   getAssignment,
   getParticipantById,
+  getSettings,
   getSlot,
   listAssignmentsForSlot,
+  listWeeklyShifts,
   setAssignmentRole,
   setAssignmentStatus,
   setParticipantStatus,
   setRaActive,
   setRaAvailability,
+  setRaShift,
   setSlotStatus,
+  setWeeklyShiftActive,
+  setWeeklyShiftPreferred,
   updateSetting,
 } from "@/lib/db";
 import { splitIntoSessions, type TimeBlock } from "@/lib/availability";
 import { baseUrl, sendEmail } from "@/lib/email";
 import { alternateToPromote, attendedRoster, isLive, propose } from "@/lib/engine";
 import { formatDate, formatTimeRange } from "@/lib/format";
+import { generateShiftSlots } from "@/lib/schedule";
 import { loadFullState } from "@/lib/snapshot";
 import {
   cancellationEmail,
   invitationEmail,
   rescheduleEmail,
 } from "@/lib/templates";
-import type { AssignmentRole, ParticipantStatus } from "@/lib/types";
+import type { AssignmentRole, ParticipantStatus, Weekday } from "@/lib/types";
 
 function refreshAdmin(): void {
   revalidatePath("/admin", "layout");
@@ -73,9 +82,10 @@ export async function createSlotsAction(formData: FormData): Promise<{ error?: s
   const endTime = String(formData.get("endTime") ?? "");
   const repeatWeeks = Math.min(12, Math.max(1, Number(formData.get("repeatWeeks") ?? 1) || 1));
   const followUpOf = String(formData.get("followUpOf") ?? "") || null;
+  const preferred = formData.get("preferred") === "on";
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "Pick a date." };
-  if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) {
+  if (!DATE_RE.test(date)) return { error: "Pick a date." };
+  if (!TIME_RE.test(startTime) || !TIME_RE.test(endTime)) {
     return { error: "Pick a start and end time." };
   }
   if (endTime <= startTime) return { error: "End time must be after start time." };
@@ -86,7 +96,7 @@ export async function createSlotsAction(formData: FormData): Promise<{ error?: s
     const iso = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(
       day.getDate()
     ).padStart(2, "0")}`;
-    await createSlot({ date: iso, startTime, endTime, followUpOf });
+    await createSlot({ date: iso, startTime, endTime, followUpOf, preferred });
   }
 
   refreshAdmin();
@@ -193,6 +203,108 @@ export async function toggleRaSlotAction(
   refreshAdmin();
 }
 
+// -------------------------------------------------------------- weekly shifts
+
+export async function createWeeklyShiftAction(
+  formData: FormData
+): Promise<{ error?: string }> {
+  await requireAdmin();
+  const weekday = Number(formData.get("weekday"));
+  const startTime = String(formData.get("startTime") ?? "");
+  const endTime = String(formData.get("endTime") ?? "");
+  const roomCount = Math.min(3, Math.max(1, Number(formData.get("roomCount") ?? 3) || 3));
+  const preferred = formData.get("preferred") === "on";
+
+  if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) {
+    return { error: "Pick a day of the week." };
+  }
+  if (!TIME_RE.test(startTime) || !TIME_RE.test(endTime)) {
+    return { error: "Pick a start and end time." };
+  }
+  if (endTime <= startTime) return { error: "End time must be after start time." };
+
+  await createWeeklyShift({
+    weekday: weekday as Weekday,
+    startTime,
+    endTime,
+    roomCount,
+    preferred,
+  });
+  refreshAdmin();
+  return {};
+}
+
+export async function deleteWeeklyShiftAction(shiftId: string): Promise<void> {
+  await requireAdmin();
+  await deleteWeeklyShift(shiftId);
+  refreshAdmin();
+}
+
+export async function setWeeklyShiftActiveAction(
+  shiftId: string,
+  active: boolean
+): Promise<void> {
+  await requireAdmin();
+  await setWeeklyShiftActive(shiftId, active);
+  refreshAdmin();
+}
+
+export async function setWeeklyShiftPreferredAction(
+  shiftId: string,
+  preferred: boolean
+): Promise<void> {
+  await requireAdmin();
+  await setWeeklyShiftPreferred(shiftId, preferred);
+  refreshAdmin();
+}
+
+export async function toggleRaShiftAction(
+  raId: string,
+  shiftId: string,
+  assigned: boolean
+): Promise<void> {
+  await requireAdmin();
+  await setRaShift(raId, shiftId, assigned);
+  refreshAdmin();
+}
+
+export interface GenerateResult {
+  created: number;
+  error?: string;
+}
+
+/**
+ * Generates dated session slots from the active weekly shifts across the
+ * configured semester window. Idempotent — existing (date, start_time) slots
+ * are left untouched, so re-running only fills gaps (e.g. after adding a shift
+ * or extending the semester).
+ */
+export async function generateSemesterSlotsAction(): Promise<GenerateResult> {
+  await requireAdmin();
+  const [shifts, settings] = await Promise.all([listWeeklyShifts(), getSettings()]);
+  const active = shifts.filter((s) => s.active);
+  if (active.length === 0) {
+    return { created: 0, error: "Add at least one weekly shift first." };
+  }
+  if (settings.semesterEnd < settings.semesterStart) {
+    return { created: 0, error: "Semester end is before its start — fix the dates below." };
+  }
+
+  const generated = generateShiftSlots(active, settings.semesterStart, settings.semesterEnd);
+  const created = await createSlotsBulk(
+    generated.map((g) => ({
+      date: g.date,
+      startTime: g.startTime,
+      endTime: g.endTime,
+      roomCount: g.roomCount,
+      shiftId: g.shiftId,
+      preferred: g.preferred,
+    }))
+  );
+  refreshAdmin();
+  return { created };
+}
+
 // --------------------------------------------------------------- participants
 
 export async function setParticipantStatusAction(
@@ -230,6 +342,25 @@ export async function updateSettingsAction(formData: FormData): Promise<{ error?
   for (const [key, value] of values) {
     await updateSetting(key, String(value));
   }
+  refreshAdmin();
+  return {};
+}
+
+/** Updates just the semester window (owned by the shift page's generator). */
+export async function updateSemesterAction(
+  formData: FormData
+): Promise<{ error?: string }> {
+  await requireAdmin();
+  const semesterStart = String(formData.get("semesterStart") ?? "");
+  const semesterEnd = String(formData.get("semesterEnd") ?? "");
+  if (!DATE_RE.test(semesterStart) || !DATE_RE.test(semesterEnd)) {
+    return { error: "Pick a semester start and end date." };
+  }
+  if (semesterEnd < semesterStart) {
+    return { error: "Semester end must be on or after its start." };
+  }
+  await updateSetting("semester_start", semesterStart);
+  await updateSetting("semester_end", semesterEnd);
   refreshAdmin();
   return {};
 }

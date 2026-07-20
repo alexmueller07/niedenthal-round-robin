@@ -8,11 +8,20 @@ import {
   listParticipants,
   listRaAvailability,
   listRas,
+  listRaShifts,
   listSlots,
+  listWeeklyShifts,
 } from "./db";
 import type { EngineSnapshot } from "./engine";
 import { todayInMadison } from "./format";
-import type { Assignment, Participant, Ra, Settings, Slot } from "./types";
+import type {
+  Assignment,
+  Participant,
+  Ra,
+  Settings,
+  Slot,
+  WeeklyShift,
+} from "./types";
 
 export interface FullState {
   snapshot: EngineSnapshot;
@@ -21,28 +30,73 @@ export interface FullState {
   ras: Ra[];
   assignments: Assignment[];
   raAvailability: Array<{ raId: string; slotId: string }>;
+  weeklyShifts: WeeklyShift[];
+  raShifts: Array<{ raId: string; shiftId: string }>;
   settings: Settings;
+  /** Effective RA coverage per slot: shift assignments ∪ per-slot availability. */
   raCountBySlot: Map<string, number>;
 }
 
 export async function loadFullState(): Promise<FullState> {
-  const [slots, participants, ras, assignments, raAvailability, participantAvailability, settings] =
-    await Promise.all([
-      listSlots(),
-      listParticipants(),
-      listRas(),
-      listAssignments(),
-      listRaAvailability(),
-      listParticipantAvailability(),
-      getSettings(),
-    ]);
+  const [
+    slots,
+    participants,
+    ras,
+    assignments,
+    raAvailability,
+    participantAvailability,
+    weeklyShifts,
+    raShifts,
+    settings,
+  ] = await Promise.all([
+    listSlots(),
+    listParticipants(),
+    listRas(),
+    listAssignments(),
+    listRaAvailability(),
+    listParticipantAvailability(),
+    listWeeklyShifts(),
+    listRaShifts(),
+    getSettings(),
+  ]);
 
   const activeRaIds = new Set(ras.filter((r) => r.active).map((r) => r.id));
-  const raCountBySlot = new Map<string, number>();
+
+  // Active RAs assigned to each recurring shift.
+  const raIdsByShift = new Map<string, Set<string>>();
+  for (const { raId, shiftId } of raShifts) {
+    if (!activeRaIds.has(raId)) continue;
+    let set = raIdsByShift.get(shiftId);
+    if (!set) {
+      set = new Set();
+      raIdsByShift.set(shiftId, set);
+    }
+    set.add(raId);
+  }
+
+  // Effective coverage per slot: shift-derived RAs unioned with any per-slot
+  // availability (used for ad-hoc / follow-up slots that have no shift).
+  const raSetBySlot = new Map<string, Set<string>>();
+  const coverFor = (slotId: string): Set<string> => {
+    let set = raSetBySlot.get(slotId);
+    if (!set) {
+      set = new Set();
+      raSetBySlot.set(slotId, set);
+    }
+    return set;
+  };
+  for (const slot of slots) {
+    if (!slot.shiftId) continue;
+    const shiftRas = raIdsByShift.get(slot.shiftId);
+    if (shiftRas) for (const raId of shiftRas) coverFor(slot.id).add(raId);
+  }
   for (const { raId, slotId } of raAvailability) {
     if (!activeRaIds.has(raId)) continue;
-    raCountBySlot.set(slotId, (raCountBySlot.get(slotId) ?? 0) + 1);
+    coverFor(slotId).add(raId);
   }
+
+  const raCountBySlot = new Map<string, number>();
+  for (const [slotId, set] of raSetBySlot) raCountBySlot.set(slotId, set.size);
 
   const snapshot: EngineSnapshot = {
     today: todayInMadison(),
@@ -77,6 +131,8 @@ export async function loadFullState(): Promise<FullState> {
     ras,
     assignments,
     raAvailability,
+    weeklyShifts,
+    raShifts,
     settings,
     raCountBySlot,
   };

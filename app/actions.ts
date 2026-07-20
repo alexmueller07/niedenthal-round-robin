@@ -15,12 +15,14 @@ import {
   listAssignmentsForParticipant,
   replaceParticipantAvailability,
   setAssignmentStatus,
+  setParticipantDeclinedAll,
   upsertParticipant,
 } from "@/lib/db";
 import { sendEmail } from "@/lib/email";
 import { confirmationEmail } from "@/lib/templates";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const NETID_RE = /^[a-z0-9]+$/;
 
 export interface ActionResult {
   ok: boolean;
@@ -30,15 +32,22 @@ export interface ActionResult {
 export async function signInParticipant(formData: FormData): Promise<ActionResult> {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const fullName = String(formData.get("fullName") ?? "").trim();
+  const netid = String(formData.get("netid") ?? "").trim().toLowerCase();
 
-  if (!EMAIL_RE.test(email)) {
-    return { ok: false, error: "Please enter a valid email address." };
-  }
   if (fullName.length === 0) {
     return { ok: false, error: "Please enter your full name." };
   }
+  if (!EMAIL_RE.test(email)) {
+    return { ok: false, error: "Please enter a valid email address." };
+  }
+  if (!NETID_RE.test(netid)) {
+    return {
+      ok: false,
+      error: "Please enter your UW NetID (letters and numbers, no @wisc.edu).",
+    };
+  }
 
-  const participant = await upsertParticipant(email, fullName);
+  const participant = await upsertParticipant(email, fullName, netid);
   await setParticipantSession(participant.id);
   revalidatePath("/");
   return { ok: true };
@@ -57,6 +66,22 @@ export async function saveAvailability(slotIds: string[]): Promise<ActionResult>
   }
 
   await replaceParticipantAvailability(participantId, slotIds);
+  // Saving real availability clears any earlier "none of these work" signal.
+  if (slotIds.length > 0) await setParticipantDeclinedAll(participantId, false);
+  revalidatePath("/");
+  return { ok: true };
+}
+
+/**
+ * "None of these times work for me" — clears availability and flags the
+ * participant so RAs can follow up with new times. Kept off the participant's
+ * view whether they're a standby/alternate; this is only their own signal.
+ */
+export async function declineAllTimes(): Promise<ActionResult> {
+  const participantId = await getParticipantSession();
+  if (!participantId) return { ok: false, error: "Your session expired — please sign in again." };
+  await replaceParticipantAvailability(participantId, []);
+  await setParticipantDeclinedAll(participantId, true);
   revalidatePath("/");
   return { ok: true };
 }

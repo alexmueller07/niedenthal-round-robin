@@ -20,7 +20,7 @@ export default function SignIn() {
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-badger">
-            Niedenthal Emotions Lab
+            Niedenthal Lab
           </p>
           <h1 className="mt-3 text-3xl font-bold tracking-tight">
             Conversation Study Scheduler
@@ -46,7 +46,7 @@ export default function SignIn() {
               className="input"
             />
           </div>
-          <div className="mb-6">
+          <div className="mb-4">
             <label htmlFor="email" className="label">
               Email
             </label>
@@ -62,6 +62,26 @@ export default function SignIn() {
             <p className="mt-1.5 text-xs text-stone-500">
               Use the same email you signed up with — it&apos;s how we match your
               sessions.
+            </p>
+          </div>
+          <div className="mb-6">
+            <label htmlFor="netid" className="label">
+              UW NetID
+            </label>
+            <input
+              id="netid"
+              name="netid"
+              type="text"
+              autoComplete="username"
+              required
+              inputMode="text"
+              pattern="[A-Za-z0-9]+"
+              placeholder="bbadger"
+              className="input"
+            />
+            <p className="mt-1.5 text-xs text-stone-500">
+              Just the NetID (e.g. bbadger) — not the full @wisc.edu address. We use it
+              to grant your SONA credit.
             </p>
           </div>
           {error && (

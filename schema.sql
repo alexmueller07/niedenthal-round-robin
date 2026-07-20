@@ -1,6 +1,9 @@
 -- Round Robin Web schema (Neon Postgres).
 -- Dates/times are Madison wall-clock stored as text-ish types on purpose:
 -- single-site study, no UTC conversion anywhere.
+--
+-- This file is idempotent: re-running it (via scripts/setup-db.mjs) only ever
+-- adds missing tables/columns/settings, never drops data.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -17,6 +20,28 @@ CREATE TABLE IF NOT EXISTS ras (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL UNIQUE,
   active BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+-- Weekly recurring shift templates — the "employee shift" model. Each RA is
+-- assigned to a fixed set of these for the whole semester (see ra_shifts).
+-- Dated session slots are generated from active shifts across the semester.
+CREATE TABLE IF NOT EXISTS weekly_shifts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  weekday INTEGER NOT NULL CHECK (weekday BETWEEN 0 AND 6),  -- 0 = Sunday
+  start_time TEXT NOT NULL,  -- 'HH:MM' 24h
+  end_time TEXT NOT NULL,    -- 'HH:MM' 24h
+  room_count INTEGER NOT NULL DEFAULT 3,
+  preferred BOOLEAN NOT NULL DEFAULT FALSE,  -- surfaced first to participants
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  UNIQUE (weekday, start_time)
+);
+
+-- Fixed RA <-> shift assignment for the semester. Week-to-week swaps are
+-- handled off-app (an RA emails Randy); the app models the standing roster.
+CREATE TABLE IF NOT EXISTS ra_shifts (
+  ra_id UUID NOT NULL REFERENCES ras(id) ON DELETE CASCADE,
+  shift_id UUID NOT NULL REFERENCES weekly_shifts(id) ON DELETE CASCADE,
+  PRIMARY KEY (ra_id, shift_id)
 );
 
 CREATE TABLE IF NOT EXISTS slots (
@@ -56,7 +81,6 @@ CREATE TABLE IF NOT EXISTS assignments (
   decided_at TIMESTAMPTZ
 );
 
--- One live (invited/confirmed) assignment per participant per slot.
 CREATE UNIQUE INDEX IF NOT EXISTS assignments_live_unique
   ON assignments (participant_id, slot_id)
   WHERE status IN ('invited', 'confirmed');
@@ -81,10 +105,21 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 
+-- Additive columns for tables that predate the shift model / NetID capture.
+-- ADD COLUMN IF NOT EXISTS keeps this safe to re-run on a populated database.
+ALTER TABLE participants ADD COLUMN IF NOT EXISTS netid TEXT;
+ALTER TABLE participants ADD COLUMN IF NOT EXISTS declined_all BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE slots ADD COLUMN IF NOT EXISTS shift_id UUID REFERENCES weekly_shifts(id) ON DELETE SET NULL;
+ALTER TABLE slots ADD COLUMN IF NOT EXISTS preferred BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE INDEX IF NOT EXISTS slots_shift_idx ON slots (shift_id);
+
 INSERT INTO settings (key, value) VALUES
   ('group_min', '6'),
   ('group_max', '8'),
   ('overrecruit', '2'),
   ('min_ras', '2'),
-  ('seed', '20260711')
+  ('seed', '20260711'),
+  ('semester_start', '2026-09-02'),
+  ('semester_end', '2026-12-11')
 ON CONFLICT (key) DO NOTHING;

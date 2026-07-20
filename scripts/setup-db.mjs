@@ -15,10 +15,16 @@ const schemaPath = join(dirname(fileURLToPath(import.meta.url)), "..", "schema.s
 const schema = readFileSync(schemaPath, "utf8");
 
 // The Neon HTTP driver runs one statement per call; split on top-level ';'.
+// Strip full-line comments first — otherwise a comment immediately before a
+// statement rides into that statement's chunk and the whole chunk (comment +
+// SQL) gets dropped as if it were only a comment.
 const statements = schema
+  .split(/\r?\n/)
+  .filter((line) => !/^\s*--/.test(line))
+  .join("\n")
   .split(/;\s*(?:\r?\n|$)/)
   .map((s) => s.trim())
-  .filter((s) => s.length > 0 && !s.startsWith("--"));
+  .filter((s) => s.length > 0);
 
 const sql = neon(url);
 for (const statement of statements) {

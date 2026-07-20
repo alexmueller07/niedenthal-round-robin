@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Conversation Study Scheduler — Niedenthal Emotions Lab",
+  title: "Conversation Study Scheduler — Niedenthal Lab",
   description:
-    "Schedule your sessions for the Niedenthal Emotions Lab conversation study at UW–Madison.",
+    "Schedule your sessions for the Niedenthal Lab conversation study at UW–Madison.",
 };
 
 export default function RootLayout({

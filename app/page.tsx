@@ -1,7 +1,9 @@
 import { getParticipantSession } from "@/lib/auth";
 import {
   getAvailabilityForParticipant,
+  getLiveMemberCountsBySlot,
   getParticipantById,
+  getSettings,
   listAssignmentsForParticipant,
   listSlots,
 } from "@/lib/db";
@@ -18,16 +20,18 @@ export default async function Home() {
   const participant = await getParticipantById(participantId);
   if (!participant) return <SignIn />;
 
-  const [allSlots, availability, assignments] = await Promise.all([
+  const [allSlots, availability, assignments, fillBySlot, settings] = await Promise.all([
     listSlots(),
     getAvailabilityForParticipant(participantId),
     listAssignmentsForParticipant(participantId),
+    getLiveMemberCountsBySlot(),
+    getSettings(),
   ]);
 
   const today = todayInMadison();
   const slotById = new Map(allSlots.map((s) => [s.id, s]));
 
-  const openUpcoming = allSlots.filter((s) => s.status !== "canceled" && s.date >= today);
+  const openUpcoming = allSlots.filter((s) => s.status === "open" && s.date >= today);
 
   const joined = assignments.flatMap((assignment) => {
     const slot = slotById.get(assignment.slotId);
@@ -40,6 +44,8 @@ export default async function Home() {
       slots={openUpcoming}
       availability={availability}
       assignments={joined}
+      fillBySlot={fillBySlot}
+      groupTarget={settings.groupMin}
     />
   );
 }
