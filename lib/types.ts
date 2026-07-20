@@ -10,6 +10,8 @@ export type AssignmentStatus =
   | "no_show"
   | "canceled";
 export type AssignmentRole = "member" | "alternate";
+/** Where a participant is in the session flow, tracked on the live console. */
+export type LiveStatus = "waiting" | "in_conversation" | "at_survey" | "done";
 export type EmailStatus = "sent" | "failed" | "manual";
 export type EmailTemplate =
   | "invitation"
@@ -55,6 +57,22 @@ export interface WeeklyShift {
   active: boolean;
 }
 
+/** One conversation dyad placed in a room for a round. */
+export interface Dyad {
+  room: number; // 1-based
+  a: string; // participant id
+  b: string; // participant id
+}
+
+export interface RoundPlan {
+  round: number; // 1-based
+  dyads: Dyad[];
+  sittingOut: string[];
+}
+
+/** The full day-of room rotation for a session. */
+export type Rotation = RoundPlan[];
+
 export interface Slot {
   id: string;
   date: string;
@@ -67,6 +85,10 @@ export interface Slot {
   shiftId: string | null;
   /** Denormalized from the shift at generation time; drives portal ordering. */
   preferred: boolean;
+  /** Locked-in day-of room rotation (null until the experimenter generates it). */
+  rotation: Rotation | null;
+  /** Which conversation round is live (0 = not started). */
+  currentRound: number;
   notes: string;
 }
 
@@ -76,6 +98,10 @@ export interface Assignment {
   slotId: string;
   status: AssignmentStatus;
   role: AssignmentRole;
+  /** Live session progress, driven by the experimenter console. */
+  liveStatus: LiveStatus;
+  /** Raised by the participant (or an RA); cleared when help arrives. */
+  needsHelp: boolean;
   assignedAt: string;
   decidedAt: string | null;
 }

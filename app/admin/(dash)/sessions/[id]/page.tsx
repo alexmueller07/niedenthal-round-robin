@@ -57,7 +57,12 @@ export default async function SessionPage({
             {slot.followUpOf && " · follow-up session"}
           </p>
         </div>
-        <SessionActions slot={slot} />
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href={`/admin/sessions/${slot.id}/run`} className="btn-primary">
+            Run session →
+          </Link>
+          <SessionActions slot={slot} />
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-3">

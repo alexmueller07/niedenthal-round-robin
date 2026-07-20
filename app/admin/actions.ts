@@ -24,12 +24,16 @@ import {
   getSlot,
   listAssignmentsForSlot,
   listWeeklyShifts,
+  setAssignmentLiveStatus,
+  setAssignmentNeedsHelp,
   setAssignmentRole,
   setAssignmentStatus,
   setParticipantStatus,
   setRaActive,
   setRaAvailability,
   setRaShift,
+  setSlotCurrentRound,
+  setSlotRotation,
   setSlotStatus,
   setWeeklyShiftActive,
   setWeeklyShiftPreferred,
@@ -40,13 +44,17 @@ import { baseUrl, sendEmail } from "@/lib/email";
 import { alternateToPromote, attendedRoster, isLive, propose } from "@/lib/engine";
 import { formatDate, formatTimeRange } from "@/lib/format";
 import { generateShiftSlots } from "@/lib/schedule";
+import { generateRotation } from "@/lib/rotation";
 import { loadFullState } from "@/lib/snapshot";
 import {
   cancellationEmail,
   invitationEmail,
   rescheduleEmail,
 } from "@/lib/templates";
-import type { AssignmentRole, ParticipantStatus, Weekday } from "@/lib/types";
+import type { AssignmentRole, LiveStatus, ParticipantStatus, Weekday } from "@/lib/types";
+
+const LIVE_STATUSES: LiveStatus[] = ["waiting", "in_conversation", "at_survey", "done"];
+const CONVERSATION_ROUNDS = 3;
 
 function refreshAdmin(): void {
   revalidatePath("/admin", "layout");
@@ -573,4 +581,75 @@ async function rescheduleParticipant(
     content: rescheduleEmail(participant, target, confirmUrlFor(assignment.id)),
   });
   return `${formatDate(target.date)}, ${formatTimeRange(target.startTime, target.endTime)}`;
+}
+
+// ---------------------------------------------------- experimenter console
+
+/** Stable per-slot offset so each session's rotation differs but is reproducible. */
+function slotSeedOffset(slotId: string): number {
+  let sum = 0;
+  for (const ch of slotId) sum += ch.charCodeAt(0);
+  return sum;
+}
+
+/**
+ * Locks in the day-of room rotation for the people present (confirmed or
+ * checked-in) and starts the session at round 1. Seeded + reproducible.
+ */
+export async function generateRotationAction(
+  slotId: string
+): Promise<{ error?: string }> {
+  await requireAdmin();
+  const [slot, assignments, settings] = await Promise.all([
+    getSlot(slotId),
+    listAssignmentsForSlot(slotId),
+    getSettings(),
+  ]);
+  if (!slot) return { error: "Session not found." };
+
+  const present = assignments
+    .filter((a) => a.status === "confirmed" || a.status === "attended")
+    .map((a) => a.participantId);
+
+  if (present.length < 2) {
+    return { error: "Need at least two people present to build a rotation." };
+  }
+
+  const rotation = generateRotation(present, {
+    rooms: Math.max(1, slot.roomCount),
+    rounds: CONVERSATION_ROUNDS,
+    seed: settings.seed + slotSeedOffset(slotId),
+  });
+  await setSlotRotation(slotId, rotation, 1);
+  refreshAdmin();
+  return {};
+}
+
+export async function advanceRoundAction(
+  slotId: string,
+  direction: 1 | -1
+): Promise<void> {
+  await requireAdmin();
+  const slot = await getSlot(slotId);
+  if (!slot || !slot.rotation) return;
+  const max = slot.rotation.length;
+  const next = Math.min(max, Math.max(1, slot.currentRound + direction));
+  await setSlotCurrentRound(slotId, next);
+  refreshAdmin();
+}
+
+export async function setLiveStatusAction(
+  assignmentId: string,
+  status: LiveStatus
+): Promise<void> {
+  await requireAdmin();
+  if (!LIVE_STATUSES.includes(status)) return;
+  await setAssignmentLiveStatus(assignmentId, status);
+  refreshAdmin();
+}
+
+export async function resolveHelpAction(assignmentId: string): Promise<void> {
+  await requireAdmin();
+  await setAssignmentNeedsHelp(assignmentId, false);
+  refreshAdmin();
 }

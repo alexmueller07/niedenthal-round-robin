@@ -112,6 +112,13 @@ ALTER TABLE participants ADD COLUMN IF NOT EXISTS declined_all BOOLEAN NOT NULL 
 ALTER TABLE slots ADD COLUMN IF NOT EXISTS shift_id UUID REFERENCES weekly_shifts(id) ON DELETE SET NULL;
 ALTER TABLE slots ADD COLUMN IF NOT EXISTS preferred BOOLEAN NOT NULL DEFAULT FALSE;
 
+-- Experimenter dashboard: the locked-in day-of room rotation and where the
+-- session currently is, plus each participant's live status and help flag.
+ALTER TABLE slots ADD COLUMN IF NOT EXISTS rotation JSONB;
+ALTER TABLE slots ADD COLUMN IF NOT EXISTS current_round INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE assignments ADD COLUMN IF NOT EXISTS live_status TEXT NOT NULL DEFAULT 'waiting';
+ALTER TABLE assignments ADD COLUMN IF NOT EXISTS needs_help BOOLEAN NOT NULL DEFAULT FALSE;
+
 CREATE INDEX IF NOT EXISTS slots_shift_idx ON slots (shift_id);
 
 INSERT INTO settings (key, value) VALUES

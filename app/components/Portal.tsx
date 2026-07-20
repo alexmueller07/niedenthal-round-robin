@@ -11,6 +11,7 @@ import { formatDate, formatTimeRange } from "@/lib/format";
 import {
   confirmMyAssignment,
   declineAllTimes,
+  requestHelp,
   saveAvailability,
   signOutParticipant,
 } from "../actions";
@@ -42,6 +43,7 @@ export default function Portal({
   const [message, setMessage] = useState<string | null>(null);
   const [declined, setDeclined] = useState(participant.declinedAll);
   const [showMore, setShowMore] = useState(false);
+  const [helpSent, setHelpSent] = useState<Set<string>>(new Set());
   const [pending, startTransition] = useTransition();
 
   const live = assignments.filter(
@@ -196,6 +198,27 @@ export default function Portal({
                   the orientation room. Can&apos;t make it anymore? Reply to your
                   invitation email as soon as possible.
                 </p>
+                {helpSent.has(assignment.id) ? (
+                  <p className="mt-3 rounded-xl bg-green-50 px-4 py-2.5 text-sm font-medium text-green-800">
+                    A research assistant has been notified and will be right with you.
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() =>
+                      startTransition(async () => {
+                        const result = await requestHelp(assignment.id);
+                        if (result.ok) {
+                          setHelpSent((prev) => new Set(prev).add(assignment.id));
+                        }
+                      })
+                    }
+                    className="btn-ghost mt-3 border-badger/40 text-badger hover:bg-badger-soft"
+                  >
+                    🖐 I need help
+                  </button>
+                )}
               </div>
             </div>
           ))}

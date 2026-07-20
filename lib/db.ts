@@ -9,9 +9,11 @@ import type {
   EmailLogEntry,
   EmailStatus,
   EmailTemplate,
+  LiveStatus,
   Participant,
   ParticipantStatus,
   Ra,
+  Rotation,
   Settings,
   Slot,
   SlotStatus,
@@ -81,6 +83,8 @@ function toSlot(r: Row): Slot {
     followUpOf: r.follow_up_of === null ? null : asString(r.follow_up_of),
     shiftId: r.shift_id == null ? null : asString(r.shift_id),
     preferred: Boolean(r.preferred),
+    rotation: (r.rotation ?? null) as Slot["rotation"],
+    currentRound: r.current_round == null ? 0 : Number(r.current_round),
     notes: asString(r.notes ?? ""),
   };
 }
@@ -92,6 +96,8 @@ function toAssignment(r: Row): Assignment {
     slotId: asString(r.slot_id),
     status: asString(r.status) as AssignmentStatus,
     role: asString(r.role) as AssignmentRole,
+    liveStatus: (asString(r.live_status ?? "waiting")) as LiveStatus,
+    needsHelp: Boolean(r.needs_help),
     assignedAt: asTimestamp(r.assigned_at),
     decidedAt: r.decided_at === null ? null : asTimestamp(r.decided_at),
   };
@@ -455,6 +461,49 @@ export async function setAssignmentStatus(
 export async function setAssignmentRole(id: string, role: AssignmentRole): Promise<void> {
   const sql = getSql();
   await sql`UPDATE assignments SET role = ${role} WHERE id = ${id};`;
+}
+
+// ---------------------------------------------------- experimenter console
+
+export async function setSlotRotation(
+  slotId: string,
+  rotation: Rotation,
+  currentRound: number
+): Promise<void> {
+  const sql = getSql();
+  await sql`
+    UPDATE slots SET rotation = ${JSON.stringify(rotation)}, current_round = ${currentRound}
+    WHERE id = ${slotId};`;
+}
+
+export async function setSlotCurrentRound(slotId: string, round: number): Promise<void> {
+  const sql = getSql();
+  await sql`UPDATE slots SET current_round = ${round} WHERE id = ${slotId};`;
+}
+
+export async function setAssignmentLiveStatus(
+  id: string,
+  status: LiveStatus
+): Promise<void> {
+  const sql = getSql();
+  await sql`UPDATE assignments SET live_status = ${status} WHERE id = ${id};`;
+}
+
+export async function setAssignmentNeedsHelp(id: string, needsHelp: boolean): Promise<void> {
+  const sql = getSql();
+  await sql`UPDATE assignments SET needs_help = ${needsHelp} WHERE id = ${id};`;
+}
+
+/** Participant-facing: raise a help flag on the participant's live assignment. */
+export async function requestHelpForParticipant(
+  participantId: string,
+  slotId: string
+): Promise<void> {
+  const sql = getSql();
+  await sql`
+    UPDATE assignments SET needs_help = TRUE
+    WHERE participant_id = ${participantId} AND slot_id = ${slotId}
+      AND status IN ('invited', 'confirmed', 'attended');`;
 }
 
 // ------------------------------------------------------------------ email log

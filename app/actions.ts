@@ -14,6 +14,7 @@ import {
   getSlot,
   listAssignmentsForParticipant,
   replaceParticipantAvailability,
+  setAssignmentNeedsHelp,
   setAssignmentStatus,
   setParticipantDeclinedAll,
   upsertParticipant,
@@ -115,6 +116,19 @@ export async function confirmMyAssignment(assignmentId: string): Promise<ActionR
     }
   }
 
+  revalidatePath("/");
+  return { ok: true };
+}
+
+/** Raises a help flag on the participant's own assignment (live session). */
+export async function requestHelp(assignmentId: string): Promise<ActionResult> {
+  const participantId = await getParticipantSession();
+  if (!participantId) return { ok: false, error: "Your session expired — please sign in again." };
+  const assignment = await getAssignment(assignmentId);
+  if (!assignment || assignment.participantId !== participantId) {
+    return { ok: false, error: "Assignment not found." };
+  }
+  await setAssignmentNeedsHelp(assignmentId, true);
   revalidatePath("/");
   return { ok: true };
 }
