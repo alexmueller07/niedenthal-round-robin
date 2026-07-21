@@ -6,8 +6,23 @@
 import { useMemo, useState, useTransition } from "react";
 import { splitIntoSessions, type TimeBlock } from "@/lib/availability";
 import { formatDateShort, formatTimeRange } from "@/lib/format";
-import AvailabilityGrid from "@/app/components/AvailabilityGrid";
+import PaintGrid, { type PaintColumn } from "@/app/components/PaintGrid";
 import { createSlotsFromBlocksAction } from "../../actions";
+
+const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+const MONTH_SHORT = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+] as const;
+
+function dateColumn(date: string): PaintColumn {
+  const [y, m, d] = date.split("-").map(Number);
+  return {
+    key: date,
+    label: WEEKDAY_SHORT[new Date(y, m - 1, d).getDay()],
+    sublabel: `${MONTH_SHORT[m - 1]} ${d}`,
+  };
+}
 
 const LENGTHS = [
   { minutes: 90, label: "1.5 hours" },
@@ -66,9 +81,10 @@ export default function SlotCalendarCreate({ dates }: { dates: string[] }) {
         </p>
       </div>
 
-      <AvailabilityGrid
+      <PaintGrid
         key={gridKey}
-        dates={dates}
+        columns={dates.map(dateColumn)}
+        pageSize={7}
         initialBlocks={[]}
         onSelectionChange={(next) => {
           setBlocks(next);
@@ -88,7 +104,7 @@ export default function SlotCalendarCreate({ dates }: { dates: string[] }) {
               ready:{" "}
               {sessions
                 .slice(0, 4)
-                .map((s) => `${formatDateShort(s.date)} ${formatTimeRange(s.startTime, s.endTime)}`)
+                .map((s) => `${formatDateShort(s.column)} ${formatTimeRange(s.startTime, s.endTime)}`)
                 .join(" · ")}
               {sessions.length > 4 && ` · +${sessions.length - 4} more`}
             </>

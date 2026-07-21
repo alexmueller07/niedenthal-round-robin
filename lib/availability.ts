@@ -1,15 +1,22 @@
-// Availability time-block logic — pure functions shared by the portal grid,
-// the snapshot builder, and the suggested-times panel.
+// Painted time-block logic — pure functions shared by every drag painter in the
+// app (weekly shift schedule, RA availability, admin session calendar).
 //
-// Participants paint free-form blocks on a calendar ("HH:MM" wall-clock,
-// "YYYY-MM-DD" dates). A participant can attend a session slot only when
-// their painted blocks fully cover the slot's time range on that date.
+// A block is anchored to a *column* rather than a date, so the same code serves
+// both a dated calendar ("2026-09-08") and a recurring weekly grid ("1" = Monday,
+// matching JS Date.getDay()). Times are "HH:MM" Madison wall-clock throughout.
 
-export interface TimeBlock {
-  date: string; // YYYY-MM-DD
+export interface PaintBlock {
+  /** Column the block sits in: a date "YYYY-MM-DD" or a weekday "0"–"6". */
+  column: string;
   startTime: string; // HH:MM
   endTime: string; // HH:MM, exclusive
 }
+
+/**
+ * A paint block whose column is a calendar date. Same shape as PaintBlock —
+ * the alias documents intent at call sites that are date-specific.
+ */
+export type TimeBlock = PaintBlock;
 
 export function timeToMinutes(time: string): number {
   const [h, m] = time.split(":").map(Number);
@@ -22,45 +29,55 @@ export function minutesToTime(minutes: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-/** Sorts and merges overlapping/adjacent blocks within each date. */
-export function mergeBlocks(blocks: readonly TimeBlock[]): TimeBlock[] {
-  const byDate = new Map<string, Array<{ start: number; end: number }>>();
+/** Sorts and merges overlapping/adjacent blocks within each column. */
+export function mergeBlocks(blocks: readonly PaintBlock[]): PaintBlock[] {
+  const byColumn = new Map<string, Array<{ start: number; end: number }>>();
   for (const b of blocks) {
     const start = timeToMinutes(b.startTime);
     const end = timeToMinutes(b.endTime);
     if (end <= start) continue;
-    const list = byDate.get(b.date) ?? [];
+    const list = byColumn.get(b.column) ?? [];
     list.push({ start, end });
-    byDate.set(b.date, list);
+    byColumn.set(b.column, list);
   }
 
-  const merged: TimeBlock[] = [];
-  for (const [date, list] of [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+  const merged: PaintBlock[] = [];
+  for (const [column, list] of [...byColumn.entries()].sort(([a], [b]) =>
+    a.localeCompare(b)
+  )) {
     list.sort((a, b) => a.start - b.start);
     let current = list[0];
     for (const next of list.slice(1)) {
       if (next.start <= current.end) {
         current = { start: current.start, end: Math.max(current.end, next.end) };
       } else {
-        merged.push({ date, startTime: minutesToTime(current.start), endTime: minutesToTime(current.end) });
+        merged.push({
+          column,
+          startTime: minutesToTime(current.start),
+          endTime: minutesToTime(current.end),
+        });
         current = next;
       }
     }
-    merged.push({ date, startTime: minutesToTime(current.start), endTime: minutesToTime(current.end) });
+    merged.push({
+      column,
+      startTime: minutesToTime(current.start),
+      endTime: minutesToTime(current.end),
+    });
   }
   return merged;
 }
 
-/** True when the blocks fully cover [startTime, endTime) on the given date. */
+/** True when the blocks fully cover [startTime, endTime) in the given column. */
 export function coversRange(
-  blocks: readonly TimeBlock[],
-  date: string,
+  blocks: readonly PaintBlock[],
+  column: string,
   startTime: string,
   endTime: string
 ): boolean {
   const start = timeToMinutes(startTime);
   const end = timeToMinutes(endTime);
-  for (const b of mergeBlocks(blocks.filter((x) => x.date === date))) {
+  for (const b of mergeBlocks(blocks.filter((x) => x.column === column))) {
     if (timeToMinutes(b.startTime) <= start && timeToMinutes(b.endTime) >= end) {
       return true;
     }
@@ -68,8 +85,8 @@ export function coversRange(
   return false;
 }
 
-/** Total painted hours across all blocks (for the participants table). */
-export function totalHours(blocks: readonly TimeBlock[]): number {
+/** Total painted hours across all blocks. */
+export function totalHours(blocks: readonly PaintBlock[]): number {
   const minutes = mergeBlocks(blocks).reduce(
     (sum, b) => sum + timeToMinutes(b.endTime) - timeToMinutes(b.startTime),
     0
@@ -78,16 +95,16 @@ export function totalHours(blocks: readonly TimeBlock[]): number {
 }
 
 /**
- * Converts a set of selected 30-minute grid cells ("date|HH:MM") into merged
- * blocks — what the portal grid saves.
+ * Converts a set of selected 30-minute grid cells ("column|HH:MM") into merged
+ * blocks — what a painter saves.
  */
-export function cellsToBlocks(cells: ReadonlySet<string>, cellMinutes = 30): TimeBlock[] {
-  const raw: TimeBlock[] = [];
+export function cellsToBlocks(cells: ReadonlySet<string>, cellMinutes = 30): PaintBlock[] {
+  const raw: PaintBlock[] = [];
   for (const cell of cells) {
-    const [date, start] = cell.split("|");
-    if (!date || !start) continue;
+    const [column, start] = cell.split("|");
+    if (!column || !start) continue;
     raw.push({
-      date,
+      column,
       startTime: start,
       endTime: minutesToTime(timeToMinutes(start) + cellMinutes),
     });
@@ -97,14 +114,14 @@ export function cellsToBlocks(cells: ReadonlySet<string>, cellMinutes = 30): Tim
 
 /**
  * Splits painted blocks into back-to-back sessions of `sessionMinutes`,
- * dropping any remainder too short for a full session. This is how the admin
- * drag calendar turns painted time into concrete session slots.
+ * dropping any remainder too short for a full session. This is how a painted
+ * schedule becomes concrete sessions.
  */
 export function splitIntoSessions(
-  blocks: readonly TimeBlock[],
+  blocks: readonly PaintBlock[],
   sessionMinutes: number
-): TimeBlock[] {
-  const sessions: TimeBlock[] = [];
+): PaintBlock[] {
+  const sessions: PaintBlock[] = [];
   for (const b of mergeBlocks(blocks)) {
     for (
       let t = timeToMinutes(b.startTime);
@@ -112,7 +129,7 @@ export function splitIntoSessions(
       t += sessionMinutes
     ) {
       sessions.push({
-        date: b.date,
+        column: b.column,
         startTime: minutesToTime(t),
         endTime: minutesToTime(t + sessionMinutes),
       });
@@ -121,8 +138,8 @@ export function splitIntoSessions(
   return sessions;
 }
 
-/** Expands blocks back into 30-minute cell keys for re-editing in the grid. */
-export function blocksToCells(blocks: readonly TimeBlock[], cellMinutes = 30): Set<string> {
+/** Expands blocks back into 30-minute cell keys for re-editing in a painter. */
+export function blocksToCells(blocks: readonly PaintBlock[], cellMinutes = 30): Set<string> {
   const cells = new Set<string>();
   for (const b of blocks) {
     for (
@@ -130,7 +147,7 @@ export function blocksToCells(blocks: readonly TimeBlock[], cellMinutes = 30): S
       t + cellMinutes <= timeToMinutes(b.endTime);
       t += cellMinutes
     ) {
-      cells.add(`${b.date}|${minutesToTime(t)}`);
+      cells.add(`${b.column}|${minutesToTime(t)}`);
     }
   }
   return cells;

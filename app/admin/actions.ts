@@ -129,7 +129,7 @@ export async function createSlotsFromBlocksAction(
     blocks.length > 500 ||
     blocks.some(
       (b) =>
-        !DATE_RE.test(b.date) ||
+        !DATE_RE.test(b.column) ||
         !TIME_RE.test(b.startTime) ||
         !TIME_RE.test(b.endTime) ||
         b.endTime <= b.startTime
@@ -150,7 +150,7 @@ export async function createSlotsFromBlocksAction(
   }
 
   for (const s of sessions) {
-    await createSlot({ date: s.date, startTime: s.startTime, endTime: s.endTime });
+    await createSlot({ date: s.column, startTime: s.startTime, endTime: s.endTime });
   }
   refreshAdmin();
   return { created: sessions.length };
