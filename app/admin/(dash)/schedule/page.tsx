@@ -106,7 +106,11 @@ export default async function SchedulePage() {
       <Step
         n={2}
         title="Who staffs it"
-        hint={`Every shift needs ${settings.minRas} RAs and one head RA before the scheduler will fill its sessions.`}
+        hint={
+          settings.requireHeadRa
+            ? `Every shift needs ${settings.minRas} RAs and a head RA before the scheduler will fill its sessions.`
+            : `Every shift needs ${settings.minRas} RAs before the scheduler will fill its sessions. Mark a head RA with ☆ — sessions without one still fill, but get flagged.`
+        }
       >
         <ShiftAssignmentGrid
           shifts={weeklyShifts}
