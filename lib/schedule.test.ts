@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { generateShiftSlots, weekdayDatesBetween, weekdayName } from "./schedule";
+import {
+  generateShiftSlots,
+  shiftsCoveredBy,
+  weekdayDatesBetween,
+  weekdayName,
+} from "./schedule";
 import type { WeeklyShift } from "./types";
 
 // Reference: in 2026, Sept 1 is a Tuesday, so Sept 7/14/21/28 are Mondays.
@@ -126,6 +131,65 @@ describe("generateShiftSlots", () => {
       "2026-09-07 14:00",
       "2026-09-09 10:00",
     ]);
+  });
+});
+
+describe("shiftsCoveredBy", () => {
+  // Tuesday = 2.
+  const tueEarly = shift({ id: "early", weekday: 2, startTime: "13:00", endTime: "15:00" });
+  const tueLate = shift({ id: "late", weekday: 2, startTime: "15:00", endTime: "18:00" });
+  const monShift = shift({ id: "mon", weekday: 1, startTime: "13:00", endTime: "15:00" });
+
+  it("covers a shift the paint fully spans", () => {
+    const covered = shiftsCoveredBy(
+      [tueEarly, tueLate],
+      [{ column: "2", startTime: "13:00", endTime: "15:00" }]
+    );
+    expect(covered.map((s) => s.id)).toEqual(["early"]);
+  });
+
+  it("rejects a shift the paint only partly spans", () => {
+    // Free 13:00-17:00 covers the 13-15 shift but not the 15-18 one.
+    const covered = shiftsCoveredBy(
+      [tueEarly, tueLate],
+      [{ column: "2", startTime: "13:00", endTime: "17:00" }]
+    );
+    expect(covered.map((s) => s.id)).toEqual(["early"]);
+  });
+
+  it("covers both when the paint spans both", () => {
+    const covered = shiftsCoveredBy(
+      [tueEarly, tueLate],
+      [{ column: "2", startTime: "13:00", endTime: "18:00" }]
+    );
+    expect(covered.map((s) => s.id)).toEqual(["early", "late"]);
+  });
+
+  it("merges touching strokes before deciding", () => {
+    const covered = shiftsCoveredBy(
+      [tueLate],
+      [
+        { column: "2", startTime: "15:00", endTime: "16:30" },
+        { column: "2", startTime: "16:30", endTime: "18:00" },
+      ]
+    );
+    expect(covered.map((s) => s.id)).toEqual(["late"]);
+  });
+
+  it("does not let one weekday's paint cover another's shift", () => {
+    const covered = shiftsCoveredBy(
+      [monShift, tueEarly],
+      [{ column: "2", startTime: "13:00", endTime: "15:00" }]
+    );
+    expect(covered.map((s) => s.id)).toEqual(["early"]);
+  });
+
+  it("ignores inactive shifts even when the paint covers them", () => {
+    const covered = shiftsCoveredBy(
+      [shift({ id: "paused", weekday: 2, startTime: "13:00", endTime: "15:00", active: false })],
+      [{ column: "2", startTime: "13:00", endTime: "15:00" }]
+    );
+    expect(covered).toEqual([]);
   });
 });
 
