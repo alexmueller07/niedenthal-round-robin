@@ -20,22 +20,58 @@ a subtle "filling up" nudge and an explicit "none of these times work for me"
 escape so nobody leaves availability blank. They see their current session with
 a one-tap confirm. Invitation emails carry a signed one-click confirm link.
 
-**RAs** (`/admin`, shared lab password):
+**RAs** (`/admin`, shared lab password) — four tabs, each one job:
 
-| Page | What it does |
+| Tab | What it does |
 |---|---|
-| Board | Fill meters per upcoming session, "needs attention" alerts |
-| Shifts & RAs | Define the recurring weekly schedule, assign each RA to their standing shifts for the semester, then generate the semester's dated sessions; one-off slots (pilots / follow-ups) still supported. Shifts need `min_ras` RAs before the engine touches their sessions |
-| Scheduler | Preview the engine's proposal, then approve — approval creates assignments and sends invitations |
-| Session page | One-tap check-in / no-show (auto-promotes a confirmed alternate and auto-reschedules the no-show), roster CSV export (incl. NetID), follow-up slot creation |
-| Participants | Status, availability (incl. "no times work"), NetID, history, withdraw/reactivate |
-| Emails | Full log; manual/failed sends get copy-ready text |
+| Today | What's running right now with a direct route into the live console, what needs a decision, what's coming up |
+| Schedule | Three steps: **paint** the weekly grid → staff it (4 RAs + a head RA) → publish the semester. Includes the days-off calendar, session generation, bulk removal, and the engine's fill proposal |
+| People | Participants, the RA roster (incl. NetIDs and who hasn't submitted availability), and the full email log |
+| Control Center | Live room cameras, recording control, capture coverage, participant progress |
+
+Sub-pages: a session page (one-tap check-in / no-show, which auto-promotes a
+confirmed alternate and auto-reschedules the no-show; roster CSV export incl.
+NetID; follow-up creation) and the live session console (room rotation, rounds,
+help flags).
+
+**RAs submitting availability** (`/ra`): an RA signs in with a NetID an admin
+pre-registered, then paints the hours they can work. `shiftsCoveredBy` turns
+that into concrete shifts — a shift counts only when the paint spans all of it.
+Submissions are availability, not assignment: Randy still decides who staffs
+what, and the staffing grid just tints the cells an RA offered.
 
 **Shift model** (`lib/schedule.ts`): weekly shifts (weekday + time + rooms) are
 the source of truth for when the lab runs. `generateShiftSlots` expands the
-active shifts into dated `slots` across the semester window; each generated
-slot's RA coverage is derived from the RAs assigned to its shift. Week-to-week
-swaps are handled off-app (an RA emails Randy).
+active shifts into dated `slots` across the semester window, skipping blackout
+dates; each generated slot's RA coverage is derived from the RAs assigned to its
+shift. A session needs `min_ras` RAs to be fillable. It should also have a
+designated **head RA**: with the `require_head_ra` setting on, a headless
+session isn't fillable at all (what Randy asked for); with it off — the default,
+so scheduling isn't blocked before heads are assigned — the session still fills
+but is flagged on the board, in the staffing grid, and in the scheduler preview.
+Toggle it under Schedule → Advanced. Repainting the schedule deactivates dropped
+shifts rather than deleting them, so generated sessions and RA assignments
+survive. Week-to-week swaps are handled off-app (an RA emails Randy).
+
+**Control Center** (`/admin/control`) is the admin counterpart to the PPS app.
+Each conversation room runs a kiosk page (`/room/[slotId]/[roomIndex]`) that
+publishes its camera and records the conversation: seat the participants, hit
+Arm once, walk out — a countdown starts the recording and it stops itself at the
+conversation length. The control wall shows every room live, plus a matrix of
+what's been captured per round so a missed recording is visible while it can
+still be redone.
+
+**Routing** (`lib/routing.ts`) is the core of it, and everything derives from
+`slots.rotation` — nothing re-decides who is where. Each recording is stamped
+with its dyad at capture time, which is what later answers "which videos does
+this participant rate?". That's the PPS integration seam:
+`GET /api/pps/recordings?email=…` returns a participant's own conversations in
+round order with authenticated playback URLs, and `POST /api/pps/progress` lets
+the PPS app report where someone is.
+
+Signaling is SSE (`/api/control/signal/stream`) rather than WebSockets — no
+extra dependency, no separate socket server, and it works under plain Node on
+the UW server as well as on Vercel.
 
 **Engine** (`lib/engine.ts`) is pure and seeded — same state + same seed =
 same proposal (the seed is shown on every run). Invariants are unit-tested:
@@ -78,14 +114,23 @@ The schema migration is idempotent (`CREATE ... IF NOT EXISTS`, `ADD COLUMN IF
 NOT EXISTS`) — re-running `setup-db.mjs` only adds what's missing, so applying
 it to an existing pilot database is safe.
 
-**Self-hosting (e.g. UW psych server):** the build emits a standalone bundle
-(`output: "standalone"` → `.next/standalone/server.js`) that runs under any
-Node 20.9+ runtime with `node server.js`. See
-`../artifacts/2026-07-20-wisc-server-migration.md` for the UW-server path and
-what still needs confirming with DoIT.
+**UW "nickel" server:** DoIT confirmed Node.js on the account, so the app ships
+as the standalone bundle (`output: "standalone"` → `.next/standalone/server.js`)
+behind Apache. Step-by-step:
+`../artifacts/2026-07-22-nickel-deploy-runbook.md`. Two Apache settings there
+are load-bearing and not the default — proxy buffering must be off or WebRTC
+signaling stalls, and the request body limit must allow recording chunks.
 
 ## Data note (IRB 2020-1657)
 
-This app stores scheduling contact info only (name, email, availability,
-attendance) — never study data. Confirm the cloud-DB placement with Randy;
-same exposure as the previous Google Cloud SQL setup.
+Scheduling data (name, email, availability, attendance) lives in Postgres.
+
+**Conversation recordings are study data and are handled differently.** They are
+written to `RECORDING_DIR` — the mounted UW Research Drive share — never to the
+database, never to cloud storage, and never into this repo (`.gitignore` covers
+`*.webm`). The directory must sit outside the web root: files are only ever
+served through `/api/recordings/[id]/file`, which checks that the caller is an
+RA, the participant who was actually in that conversation, or the PPS app with
+its shared secret.
+
+Randy's sign-off is required before the control center records a real session.

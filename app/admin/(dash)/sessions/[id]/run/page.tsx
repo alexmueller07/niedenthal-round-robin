@@ -44,21 +44,29 @@ export default async function RunSessionPage({
 
   return (
     <div className="space-y-6">
-      <div>
-        <p className="text-sm text-ink-soft">
-          <Link href="/admin/run" className="underline-offset-4 hover:underline">
-            Run
-          </Link>{" "}
-          /{" "}
-          <Link href={`/admin/sessions/${slot.id}`} className="underline-offset-4 hover:underline">
-            Session
-          </Link>{" "}
-          / Console
-        </p>
-        <h1 className="mt-1 text-2xl font-bold tracking-tight">
-          {formatDate(slot.date)}
-        </h1>
-        <p className="text-ink-soft">{formatTimeRange(slot.startTime, slot.endTime)}</p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-sm text-ink-soft">
+            <Link href="/admin" className="underline-offset-4 hover:underline">
+              Today
+            </Link>{" "}
+            /{" "}
+            <Link
+              href={`/admin/sessions/${slot.id}`}
+              className="underline-offset-4 hover:underline"
+            >
+              Session
+            </Link>{" "}
+            / Console
+          </p>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight">
+            {formatDate(slot.date)}
+          </h1>
+          <p className="text-ink-soft">{formatTimeRange(slot.startTime, slot.endTime)}</p>
+        </div>
+        <Link href={`/admin/control/${slot.id}`} className="btn-ghost px-4 py-2 text-xs">
+          Control Center →
+        </Link>
       </div>
 
       <RunConsole

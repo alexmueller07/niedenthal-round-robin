@@ -46,3 +46,9 @@ next-env.d.ts
 # Neon-installed agent skills (tooling, not app code)
 .agents/
 
+# Conversation recordings — participant data under IRB 2020-1657. These belong
+# on Research Drive (RECORDING_DIR), never in the repo. This covers the local
+# dev folder if someone points RECORDING_DIR inside the project.
+/recordings/
+*.webm
+

@@ -25,25 +25,59 @@ export default function SettingsForm({ settings }: { settings: Settings }) {
   };
 
   return (
-    <form action={handleSubmit} className="flex flex-wrap items-end gap-4">
-      {FIELDS.map((f) => (
-        <div key={f.name}>
-          <label htmlFor={f.name} className="label">
-            {f.label}
+    <form action={handleSubmit} className="space-y-4">
+      <div className="flex flex-wrap items-end gap-4">
+        {FIELDS.map((f) => (
+          <div key={f.name}>
+            <label htmlFor={f.name} className="label">
+              {f.label}
+            </label>
+            <input
+              id={f.name}
+              name={f.name}
+              type="number"
+              defaultValue={settings[f.name]}
+              className="input w-28"
+            />
+          </div>
+        ))}
+        <div>
+          <label htmlFor="conversationMinutes" className="label">
+            Conversation min
           </label>
           <input
-            id={f.name}
-            name={f.name}
+            id="conversationMinutes"
+            name="conversationMinutes"
             type="number"
-            defaultValue={settings[f.name]}
+            defaultValue={settings.conversationMinutes}
             className="input w-28"
           />
         </div>
-      ))}
-      <button type="submit" disabled={pending} className="btn-ghost">
-        {pending ? "Saving…" : "Save settings"}
-      </button>
-      {message && <p className="w-full text-sm text-ink-soft">{message}</p>}
+      </div>
+
+      <label className="flex items-start gap-2.5 text-sm">
+        <input
+          type="checkbox"
+          name="requireHeadRa"
+          defaultChecked={settings.requireHeadRa}
+          className="mt-0.5 h-4 w-4 accent-badger"
+        />
+        <span>
+          <span className="font-medium">Require a head RA</span>
+          <span className="block text-xs text-ink-soft">
+            On: a session with no designated head RA will not be filled at all — this is
+            what Randy asked for. Off: it still fills, but is flagged on the board and in
+            the scheduler preview.
+          </span>
+        </span>
+      </label>
+
+      <div>
+        <button type="submit" disabled={pending} className="btn-ghost">
+          {pending ? "Saving…" : "Save settings"}
+        </button>
+        {message && <p className="mt-2 text-sm text-ink-soft">{message}</p>}
+      </div>
     </form>
   );
 }

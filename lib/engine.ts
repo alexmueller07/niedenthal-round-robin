@@ -17,6 +17,8 @@ export interface EngineSlot {
   startTime: string; // HH:MM — sortable lexicographically
   status: SlotStatus;
   raCount: number;
+  /** A session needs a designated head RA, not just enough bodies. */
+  hasHead: boolean;
   followUpOf: string | null;
 }
 
@@ -62,6 +64,11 @@ export interface EngineProposal {
   unfillable: Array<{ slotId: string; eligible: number; needed: number }>;
   /** Active participants with availability but no live or proposed seat. */
   unplaced: string[];
+  /**
+   * Slots being filled that have no designated head RA. Empty when
+   * requireHeadRa is on, because those slots are excluded instead.
+   */
+  headless: string[];
 }
 
 /** Mulberry32 — small deterministic PRNG, good enough for tie-breaking. */
@@ -146,11 +153,18 @@ export function propose(snapshot: EngineSnapshot): EngineProposal {
     }
   }
 
-  // Candidate slots: upcoming, open, staffed by enough RAs; earliest first.
+  // Candidate slots: upcoming, open, and staffed by enough RAs; earliest first.
+  //
+  // A missing head RA only blocks the session when requireHeadRa is on. It
+  // ships off, so a headless session still fills but is reported in
+  // `headless` for the caller to flag — see the note on Settings.requireHeadRa.
   const candidates = snapshot.slots
     .filter(
       (s) =>
-        s.status === "open" && isUpcoming(s, today) && s.raCount >= settings.minRas
+        s.status === "open" &&
+        isUpcoming(s, today) &&
+        s.raCount >= settings.minRas &&
+        (!settings.requireHeadRa || s.hasHead)
     )
     .sort((a, b) =>
       a.date === b.date ? a.startTime.localeCompare(b.startTime) : a.date.localeCompare(b.date)
@@ -231,7 +245,12 @@ export function propose(snapshot: EngineSnapshot): EngineProposal {
     )
     .map((p) => p.id);
 
-  return { seed: settings.seed, slots: proposals, unplaced, unfillable };
+  // Sessions we're about to fill that nobody is designated to lead.
+  const headless = proposals
+    .filter((p) => p.invitees.length > 0 && slotById.get(p.slotId)?.hasHead === false)
+    .map((p) => p.slotId);
+
+  return { seed: settings.seed, slots: proposals, unplaced, unfillable, headless };
 }
 
 /**

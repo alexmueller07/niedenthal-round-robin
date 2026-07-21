@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import type { Slot } from "@/lib/types";
-import { completeSlotAction, createSlotsAction } from "../../../actions";
+import { completeSlotAction, createFollowUpSlotAction } from "../../../actions";
 
 export default function SessionActions({ slot }: { slot: Slot }) {
   const [pending, startTransition] = useTransition();
@@ -18,9 +18,8 @@ export default function SessionActions({ slot }: { slot: Slot }) {
 
   const createFollowUp = (formData: FormData) => {
     setError(null);
-    formData.set("followUpOf", slot.id);
     startTransition(async () => {
-      const result = await createSlotsAction(formData);
+      const result = await createFollowUpSlotAction(slot.id, formData);
       if (result.error) setError(result.error);
       else setShowFollowUp(false);
     });

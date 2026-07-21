@@ -4,18 +4,22 @@ import "server-only";
 import {
   getSettings,
   listAssignments,
+  listBlackoutDates,
   listParticipantAvailability,
   listParticipants,
   listRaAvailability,
   listRas,
+  listRaShiftPreferences,
   listRaShifts,
   listSlots,
   listWeeklyShifts,
+  type RaShift,
 } from "./db";
 import type { EngineSnapshot } from "./engine";
 import { todayInMadison } from "./format";
 import type {
   Assignment,
+  BlackoutDate,
   Participant,
   Ra,
   Settings,
@@ -31,10 +35,15 @@ export interface FullState {
   assignments: Assignment[];
   raAvailability: Array<{ raId: string; slotId: string }>;
   weeklyShifts: WeeklyShift[];
-  raShifts: Array<{ raId: string; shiftId: string }>;
+  raShifts: RaShift[];
+  /** What RAs said they can staff (self-service), vs. raShifts which is binding. */
+  raShiftPreferences: Array<{ raId: string; shiftId: string }>;
+  blackoutDates: BlackoutDate[];
   settings: Settings;
   /** Effective RA coverage per slot: shift assignments ∪ per-slot availability. */
   raCountBySlot: Map<string, number>;
+  /** Effective head RA per slot: the slot override, else its shift's head. */
+  headRaBySlot: Map<string, string>;
 }
 
 export async function loadFullState(): Promise<FullState> {
@@ -47,6 +56,8 @@ export async function loadFullState(): Promise<FullState> {
     participantAvailability,
     weeklyShifts,
     raShifts,
+    raShiftPreferences,
+    blackoutDates,
     settings,
   ] = await Promise.all([
     listSlots(),
@@ -57,14 +68,17 @@ export async function loadFullState(): Promise<FullState> {
     listParticipantAvailability(),
     listWeeklyShifts(),
     listRaShifts(),
+    listRaShiftPreferences(),
+    listBlackoutDates(),
     getSettings(),
   ]);
 
   const activeRaIds = new Set(ras.filter((r) => r.active).map((r) => r.id));
 
-  // Active RAs assigned to each recurring shift.
+  // Active RAs assigned to each recurring shift, and each shift's head.
   const raIdsByShift = new Map<string, Set<string>>();
-  for (const { raId, shiftId } of raShifts) {
+  const headByShift = new Map<string, string>();
+  for (const { raId, shiftId, isHead } of raShifts) {
     if (!activeRaIds.has(raId)) continue;
     let set = raIdsByShift.get(shiftId);
     if (!set) {
@@ -72,6 +86,7 @@ export async function loadFullState(): Promise<FullState> {
       raIdsByShift.set(shiftId, set);
     }
     set.add(raId);
+    if (isHead) headByShift.set(shiftId, raId);
   }
 
   // Effective coverage per slot: shift-derived RAs unioned with any per-slot
@@ -98,6 +113,18 @@ export async function loadFullState(): Promise<FullState> {
   const raCountBySlot = new Map<string, number>();
   for (const [slotId, set] of raSetBySlot) raCountBySlot.set(slotId, set.size);
 
+  // Effective head per slot: the per-session override wins, otherwise the head
+  // of the shift it was generated from. Either way the head must still be an
+  // active RA who actually covers the slot.
+  const headRaBySlot = new Map<string, string>();
+  for (const slot of slots) {
+    const candidate =
+      slot.headRaId ?? (slot.shiftId ? headByShift.get(slot.shiftId) : undefined);
+    if (!candidate || !activeRaIds.has(candidate)) continue;
+    if (!raSetBySlot.get(slot.id)?.has(candidate)) continue;
+    headRaBySlot.set(slot.id, candidate);
+  }
+
   const snapshot: EngineSnapshot = {
     today: todayInMadison(),
     slots: slots.map((s) => ({
@@ -106,6 +133,7 @@ export async function loadFullState(): Promise<FullState> {
       startTime: s.startTime,
       status: s.status,
       raCount: raCountBySlot.get(s.id) ?? 0,
+      hasHead: headRaBySlot.has(s.id),
       followUpOf: s.followUpOf,
     })),
     participants: participants.map((p) => ({
@@ -133,7 +161,10 @@ export async function loadFullState(): Promise<FullState> {
     raAvailability,
     weeklyShifts,
     raShifts,
+    raShiftPreferences,
+    blackoutDates,
     settings,
     raCountBySlot,
+    headRaBySlot,
   };
 }

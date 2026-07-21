@@ -3,7 +3,25 @@
 // window. Kept pure and unit-tested (lab rule: generation must be documented
 // and reproducible).
 
+import { coversRange, type PaintBlock } from "./availability";
 import type { Weekday, WeeklyShift } from "./types";
+
+/**
+ * Which active shifts a painted weekly availability covers.
+ *
+ * RAs paint the hours they're free rather than ticking shift boxes, so this is
+ * what turns "free Tuesday afternoon" into concrete shift ids. A shift counts
+ * only when the paint spans all of it — being free for half a shift is no use
+ * when staffing a session.
+ */
+export function shiftsCoveredBy(
+  shifts: readonly WeeklyShift[],
+  blocks: readonly PaintBlock[]
+): WeeklyShift[] {
+  return shifts.filter(
+    (s) => s.active && coversRange(blocks, String(s.weekday), s.startTime, s.endTime)
+  );
+}
 
 /** Parses "YYYY-MM-DD" into a local Date (never through UTC). */
 function parseDate(date: string): Date {
@@ -55,18 +73,21 @@ export interface GeneratedSlot {
 
 /**
  * Expands active weekly shifts into dated slots across [start, end]. Inactive
- * shifts are skipped. Deterministic: sorted by date then start time so a caller
- * can dedupe against existing slots stably.
+ * shifts are skipped, as are any dates in `blackout` (holidays, breaks, finals).
+ * Deterministic: sorted by date then start time so a caller can dedupe against
+ * existing slots stably.
  */
 export function generateShiftSlots(
   shifts: readonly WeeklyShift[],
   start: string,
-  end: string
+  end: string,
+  blackout: ReadonlySet<string> = new Set()
 ): GeneratedSlot[] {
   const out: GeneratedSlot[] = [];
   for (const shift of shifts) {
     if (!shift.active) continue;
     for (const date of weekdayDatesBetween(start, end, shift.weekday)) {
+      if (blackout.has(date)) continue;
       out.push({
         date,
         startTime: shift.startTime,

@@ -18,7 +18,8 @@ function slot(id: string, date: string, overrides: Partial<EngineSlot> = {}): En
     date,
     startTime: "14:00",
     status: "open",
-    raCount: 2,
+    raCount: DEFAULT_SETTINGS.minRas,
+    hasHead: true,
     followUpOf: null,
     ...overrides,
   };
@@ -181,6 +182,57 @@ describe("propose", () => {
       })
     );
     expect(result.slots.map((s) => s.slotId)).toEqual(["good"]);
+  });
+
+  it("fills a headless session but reports it, by default", () => {
+    // Randy asked for a head RA to be required; requireHeadRa ships off so
+    // scheduling isn't blocked before heads are assigned, and the engine
+    // surfaces the gap instead.
+    const people = participants(8);
+    const result = propose(
+      snapshot({
+        slots: [
+          slot("headless", "2026-07-20", { hasHead: false }),
+          slot("led", "2026-07-22"),
+        ],
+        participants: people,
+        availability: availabilityFor(people, ["headless", "led"]),
+      })
+    );
+    expect(result.slots.map((s) => s.slotId)).toContain("headless");
+    expect(result.headless).toEqual(["headless"]);
+  });
+
+  it("will not fill a headless session when requireHeadRa is on", () => {
+    const people = participants(8);
+    const result = propose(
+      snapshot({
+        settings: { ...DEFAULT_SETTINGS, requireHeadRa: true },
+        slots: [
+          slot("headless", "2026-07-20", { hasHead: false }),
+          slot("led", "2026-07-22"),
+        ],
+        participants: people,
+        availability: availabilityFor(people, ["headless", "led"]),
+      })
+    );
+    expect(result.slots.map((s) => s.slotId)).toEqual(["led"]);
+    // Excluded outright, so there is nothing to flag and it isn't "unfillable"
+    // either — it was never a candidate.
+    expect(result.headless).toEqual([]);
+    expect(result.unfillable).toEqual([]);
+  });
+
+  it("reports no headless sessions when every filled slot has a head", () => {
+    const people = participants(8);
+    const result = propose(
+      snapshot({
+        slots: [slot("led", "2026-07-22")],
+        participants: people,
+        availability: availabilityFor(people, ["led"]),
+      })
+    );
+    expect(result.headless).toEqual([]);
   });
 
   it("prioritizes participants with fewer attended sessions", () => {

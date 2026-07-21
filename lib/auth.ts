@@ -8,8 +8,10 @@ import { cookies } from "next/headers";
 
 const ADMIN_COOKIE = "rr_admin";
 const PARTICIPANT_COOKIE = "rr_participant";
+const RA_COOKIE = "rr_ra";
 const ADMIN_TTL_MS = 1000 * 60 * 60 * 12; // 12h — one lab day
 const PARTICIPANT_TTL_MS = 1000 * 60 * 60 * 24 * 90; // the study window
+const RA_TTL_MS = 1000 * 60 * 60 * 24 * 120; // a semester
 const CONFIRM_TTL_MS = 1000 * 60 * 60 * 24 * 14;
 
 function secret(): string {
@@ -110,6 +112,37 @@ export async function getParticipantSession(): Promise<string | null> {
 export async function clearParticipantSession(): Promise<void> {
   const store = await cookies();
   store.delete(PARTICIPANT_COOKIE);
+}
+
+// -------------------------------------------------------------------- RA auth
+
+// RAs get their own session for /ra (submitting shift availability). It is
+// deliberately NOT the admin session: an RA reporting when they're free should
+// not need the shared lab password, and holding it must not grant admin.
+
+export async function setRaSession(raId: string): Promise<void> {
+  const exp = String(Date.now() + RA_TTL_MS);
+  const store = await cookies();
+  store.set(RA_COOKIE, pack(raId, exp), {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: RA_TTL_MS / 1000,
+    path: "/",
+  });
+}
+
+export async function getRaSession(): Promise<string | null> {
+  const store = await cookies();
+  const token = store.get(RA_COOKIE)?.value;
+  if (!token) return null;
+  const fields = unpack(token, 2);
+  return fields !== null && fresh(fields[1]) ? fields[0] : null;
+}
+
+export async function clearRaSession(): Promise<void> {
+  const store = await cookies();
+  store.delete(RA_COOKIE);
 }
 
 // ------------------------------------------------------------- confirm tokens
