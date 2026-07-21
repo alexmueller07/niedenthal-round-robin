@@ -1,15 +1,27 @@
+// TODAY — the day-of operational home. Merges what used to be two separate
+// tabs ("Board" and "Run session"): today's sessions with a direct route into
+// the live console, then what needs a decision, then what's coming up.
+
 import Link from "next/link";
 import { requireAdminPage } from "@/lib/admin-guard";
 import { isLive, propose } from "@/lib/engine";
-import { formatDateShort, formatTimeRange } from "@/lib/format";
+import { formatDate, formatDateShort, formatTimeRange } from "@/lib/format";
 import { loadFullState } from "@/lib/snapshot";
 
 export const dynamic = "force-dynamic";
 
-export default async function BoardPage() {
+export default async function TodayPage() {
   await requireAdminPage();
   const state = await loadFullState();
-  const { slots, participants, assignments, settings, raCountBySlot, snapshot } = state;
+  const {
+    slots,
+    participants,
+    assignments,
+    settings,
+    raCountBySlot,
+    headRaBySlot,
+    snapshot,
+  } = state;
 
   const today = snapshot.today;
   const activeParticipants = participants.filter((p) => p.status === "active");
@@ -19,14 +31,23 @@ export default async function BoardPage() {
     .sort((a, b) =>
       a.date === b.date ? a.startTime.localeCompare(b.startTime) : a.date.localeCompare(b.date)
     );
+  const todaySessions = upcoming.filter((s) => s.date === today);
+  const laterSessions = upcoming.filter((s) => s.date > today);
 
   const liveBySlot = new Map<string, { invited: number; confirmed: number }>();
+  const presentBySlot = new Map<string, number>();
+  const helpBySlot = new Map<string, number>();
   for (const a of assignments) {
-    if (!isLive(a.status)) continue;
-    const entry = liveBySlot.get(a.slotId) ?? { invited: 0, confirmed: 0 };
-    if (a.status === "confirmed") entry.confirmed += 1;
-    else entry.invited += 1;
-    liveBySlot.set(a.slotId, entry);
+    if (isLive(a.status)) {
+      const entry = liveBySlot.get(a.slotId) ?? { invited: 0, confirmed: 0 };
+      if (a.status === "confirmed") entry.confirmed += 1;
+      else entry.invited += 1;
+      liveBySlot.set(a.slotId, entry);
+    }
+    if (a.status === "confirmed" || a.status === "attended") {
+      presentBySlot.set(a.slotId, (presentBySlot.get(a.slotId) ?? 0) + 1);
+    }
+    if (a.needsHelp) helpBySlot.set(a.slotId, (helpBySlot.get(a.slotId) ?? 0) + 1);
   }
 
   const availabilityCount = new Map<string, number>();
@@ -35,7 +56,6 @@ export default async function BoardPage() {
   }
 
   const proposal = propose(snapshot);
-  const waitingForSeat = proposal.unplaced.length;
   const proposedInvites = proposal.slots.reduce((n, s) => n + s.invitees.length, 0);
   const unconfirmed = assignments.filter(
     (a) => a.status === "invited" && (slots.find((s) => s.id === a.slotId)?.date ?? "") >= today
@@ -44,26 +64,87 @@ export default async function BoardPage() {
     (p) => (availabilityCount.get(p.id) ?? 0) === 0
   ).length;
 
+  // Sessions that are staffed by enough RAs but have nobody designated to lead.
+  const headless = upcoming.filter(
+    (s) => (raCountBySlot.get(s.id) ?? 0) >= settings.minRas && !headRaBySlot.has(s.id)
+  );
+
   const stats = [
     { label: "Active participants", value: activeParticipants.length },
     { label: "Upcoming sessions", value: upcoming.length },
-    { label: "Waiting for a seat", value: waitingForSeat },
+    { label: "Waiting for a seat", value: proposal.unplaced.length },
     { label: "Unconfirmed invites", value: unconfirmed },
   ];
+
+  const needsAttention =
+    proposedInvites > 0 ||
+    proposal.unfillable.length > 0 ||
+    noAvailability > 0 ||
+    headless.length > 0;
+
+  const label = (slotId: string): string => {
+    const s = slots.find((x) => x.id === slotId);
+    return s
+      ? `${formatDateShort(s.date)} ${formatTimeRange(s.startTime, s.endTime)}`
+      : slotId;
+  };
 
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Board</h1>
-          <p className="mt-1 text-sm text-ink-soft">
-            Everything that needs a decision, at a glance.
-          </p>
+          <h1 className="text-2xl font-bold tracking-tight">Today</h1>
+          <p className="mt-1 text-sm text-ink-soft">{formatDate(today)}</p>
         </div>
         <Link href="/admin/schedule" className="btn-primary">
-          Run scheduler
+          Schedule &amp; fill sessions
         </Link>
       </div>
+
+      {/* Running now */}
+      <section>
+        <h2 className="mb-3 text-lg font-bold">Running today</h2>
+        {todaySessions.length === 0 ? (
+          <div className="card p-6 text-ink-soft">No sessions scheduled for today.</div>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {todaySessions.map((slot) => {
+              const present = presentBySlot.get(slot.id) ?? 0;
+              const help = helpBySlot.get(slot.id) ?? 0;
+              const started = slot.rotation !== null;
+              return (
+                <Link
+                  key={slot.id}
+                  href={`/admin/sessions/${slot.id}/run`}
+                  className="card block p-5 transition-shadow hover:shadow-md"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-bold">
+                        {formatTimeRange(slot.startTime, slot.endTime)}
+                      </p>
+                      <p className="text-sm text-ink-soft">{present} present</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5">
+                      {help > 0 && <span className="chip bg-badger-soft text-badger">🖐 {help}</span>}
+                      <span
+                        className={`chip ${
+                          started ? "bg-blue-100 text-blue-800" : "bg-stone-100 text-stone-600"
+                        }`}
+                      >
+                        {started ? `round ${slot.currentRound}` : "not started"}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="mt-3 text-sm font-semibold text-badger">
+                    Open live console →
+                  </p>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {stats.map((s) => (
@@ -74,7 +155,7 @@ export default async function BoardPage() {
         ))}
       </div>
 
-      {(proposedInvites > 0 || proposal.unfillable.length > 0 || noAvailability > 0) && (
+      {needsAttention && (
         <section className="card border-badger/30 bg-badger-soft p-5">
           <h2 className="font-bold">Needs attention</h2>
           <ul className="mt-2 space-y-1.5 text-sm">
@@ -82,22 +163,35 @@ export default async function BoardPage() {
               <li>
                 The scheduler can seat <strong>{proposedInvites}</strong> participant
                 {proposedInvites === 1 ? "" : "s"} right now —{" "}
-                <Link href="/admin/schedule" className="font-semibold underline underline-offset-4">
+                <Link
+                  href="/admin/schedule"
+                  className="font-semibold underline underline-offset-4"
+                >
                   review and send invitations
                 </Link>
                 .
               </li>
             )}
-            {proposal.unfillable.map((u) => {
-              const slot = slots.find((s) => s.id === u.slotId);
-              return (
-                <li key={u.slotId}>
-                  {slot ? `${formatDateShort(slot.date)} ${formatTimeRange(slot.startTime, slot.endTime)}` : u.slotId}{" "}
-                  has only {u.eligible} of {u.needed} needed people — consider more
-                  recruitment or merging times.
-                </li>
-              );
-            })}
+            {headless.length > 0 && (
+              <li>
+                <strong>{headless.length}</strong> staffed session
+                {headless.length === 1 ? " has" : "s have"} no head RA and won&apos;t be
+                filled —{" "}
+                <Link
+                  href="/admin/schedule"
+                  className="font-semibold underline underline-offset-4"
+                >
+                  assign one
+                </Link>
+                .
+              </li>
+            )}
+            {proposal.unfillable.map((u) => (
+              <li key={u.slotId}>
+                {label(u.slotId)} has only {u.eligible} of {u.needed} needed people —
+                consider more recruitment or merging times.
+              </li>
+            ))}
             {noAvailability > 0 && (
               <li>
                 <strong>{noAvailability}</strong> active participant
@@ -110,24 +204,28 @@ export default async function BoardPage() {
       )}
 
       <section>
-        <h2 className="mb-3 text-lg font-bold">Upcoming sessions</h2>
-        {upcoming.length === 0 ? (
+        <h2 className="mb-3 text-lg font-bold">Coming up</h2>
+        {laterSessions.length === 0 ? (
           <div className="card p-6 text-ink-soft">
-            No upcoming slots.{" "}
-            <Link href="/admin/slots" className="font-semibold underline underline-offset-4">
-              Create session slots
+            No upcoming sessions.{" "}
+            <Link
+              href="/admin/schedule"
+              className="font-semibold underline underline-offset-4"
+            >
+              Set the weekly schedule
             </Link>{" "}
-            to get started.
+            to generate some.
           </div>
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
-            {upcoming.map((slot) => {
+            {laterSessions.slice(0, 10).map((slot) => {
               const live = liveBySlot.get(slot.id) ?? { invited: 0, confirmed: 0 };
               const total = live.invited + live.confirmed;
               const target = settings.groupMin;
               const pct = Math.min(100, Math.round((live.confirmed / target) * 100));
               const raCount = raCountBySlot.get(slot.id) ?? 0;
               const staffed = raCount >= settings.minRas;
+              const hasHead = headRaBySlot.has(slot.id);
               return (
                 <Link
                   key={slot.id}
@@ -153,11 +251,13 @@ export default async function BoardPage() {
                       </span>
                       <span
                         className={`chip ${
-                          staffed ? "bg-stone-100 text-stone-600" : "bg-amber-100 text-amber-800"
+                          staffed && hasHead
+                            ? "bg-stone-100 text-stone-600"
+                            : "bg-amber-100 text-amber-800"
                         }`}
                       >
-                        {raCount} RA{raCount === 1 ? "" : "s"}
-                        {staffed ? "" : ` (need ${settings.minRas})`}
+                        {raCount}/{settings.minRas} RAs
+                        {staffed && !hasHead ? " · no head" : ""}
                       </span>
                     </div>
                   </div>

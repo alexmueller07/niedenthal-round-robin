@@ -12,6 +12,7 @@ import {
   requireAdmin,
 } from "@/lib/auth";
 import {
+  clearShiftHead,
   createAssignment,
   createRa,
   createSlot,
@@ -31,15 +32,17 @@ import {
   setParticipantStatus,
   setRaActive,
   setRaAvailability,
+  setRaIdentity,
   setRaShift,
+  setShiftHead,
   setSlotCurrentRound,
+  setSlotHeadRa,
   setSlotRotation,
   setSlotStatus,
   setWeeklyShiftActive,
   setWeeklyShiftPreferred,
   updateSetting,
 } from "@/lib/db";
-import { splitIntoSessions, type TimeBlock } from "@/lib/availability";
 import { baseUrl, sendEmail } from "@/lib/email";
 import { alternateToPromote, attendedRoster, isLive, propose } from "@/lib/engine";
 import { formatDate, formatTimeRange } from "@/lib/format";
@@ -83,14 +86,22 @@ export async function logoutAdmin(): Promise<void> {
 
 // ---------------------------------------------------------------------- slots
 
-export async function createSlotsAction(formData: FormData): Promise<{ error?: string }> {
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^\d{2}:\d{2}$/;
+
+/**
+ * Creates a follow-up session for one parent session. Follow-ups are the only
+ * remaining way to make a dated slot by hand — everything else comes from the
+ * weekly schedule — and they only admit the parent session's attendees.
+ */
+export async function createFollowUpSlotAction(
+  parentSlotId: string,
+  formData: FormData
+): Promise<{ error?: string }> {
   await requireAdmin();
   const date = String(formData.get("date") ?? "");
   const startTime = String(formData.get("startTime") ?? "");
   const endTime = String(formData.get("endTime") ?? "");
-  const repeatWeeks = Math.min(12, Math.max(1, Number(formData.get("repeatWeeks") ?? 1) || 1));
-  const followUpOf = String(formData.get("followUpOf") ?? "") || null;
-  const preferred = formData.get("preferred") === "on";
 
   if (!DATE_RE.test(date)) return { error: "Pick a date." };
   if (!TIME_RE.test(startTime) || !TIME_RE.test(endTime)) {
@@ -98,62 +109,18 @@ export async function createSlotsAction(formData: FormData): Promise<{ error?: s
   }
   if (endTime <= startTime) return { error: "End time must be after start time." };
 
-  const [y, m, d] = date.split("-").map(Number);
-  for (let week = 0; week < repeatWeeks; week++) {
-    const day = new Date(y, m - 1, d + week * 7);
-    const iso = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(
-      day.getDate()
-    ).padStart(2, "0")}`;
-    await createSlot({ date: iso, startTime, endTime, followUpOf, preferred });
-  }
+  const parent = await getSlot(parentSlotId);
+  if (!parent) return { error: "Parent session not found." };
 
+  await createSlot({
+    date,
+    startTime,
+    endTime,
+    roomCount: parent.roomCount,
+    followUpOf: parentSlotId,
+  });
   refreshAdmin();
   return {};
-}
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const TIME_RE = /^\d{2}:\d{2}$/;
-
-/**
- * Drag-calendar slot creation: painted blocks are split into back-to-back
- * sessions of `sessionMinutes` and each becomes a slot.
- */
-export async function createSlotsFromBlocksAction(
-  blocks: TimeBlock[],
-  sessionMinutes: number
-): Promise<{ created: number; error?: string }> {
-  await requireAdmin();
-
-  if (
-    !Array.isArray(blocks) ||
-    blocks.length > 500 ||
-    blocks.some(
-      (b) =>
-        !DATE_RE.test(b.column) ||
-        !TIME_RE.test(b.startTime) ||
-        !TIME_RE.test(b.endTime) ||
-        b.endTime <= b.startTime
-    )
-  ) {
-    return { created: 0, error: "Invalid selection." };
-  }
-  if (!Number.isFinite(sessionMinutes) || sessionMinutes < 30 || sessionMinutes > 360) {
-    return { created: 0, error: "Invalid session length." };
-  }
-
-  const sessions = splitIntoSessions(blocks, sessionMinutes);
-  if (sessions.length === 0) {
-    return {
-      created: 0,
-      error: "No painted block is long enough for a full session.",
-    };
-  }
-
-  for (const s of sessions) {
-    await createSlot({ date: s.column, startTime: s.startTime, endTime: s.endTime });
-  }
-  refreshAdmin();
-  return { created: sessions.length };
 }
 
 export async function cancelSlotAction(slotId: string): Promise<void> {
@@ -188,11 +155,42 @@ export async function completeSlotAction(slotId: string): Promise<void> {
 
 // ------------------------------------------------------------------------ RAs
 
-export async function addRaAction(formData: FormData): Promise<void> {
+const NETID_RE = /^[a-z0-9]+$/;
+
+export async function addRaAction(formData: FormData): Promise<{ error?: string }> {
   await requireAdmin();
   const name = String(formData.get("name") ?? "").trim();
-  if (name) await createRa(name);
+  const netid = String(formData.get("netid") ?? "").trim().toLowerCase();
+  if (!name) return { error: "Enter the RA's name." };
+  if (netid && !NETID_RE.test(netid)) {
+    return { error: "NetID should be letters and numbers only, without @wisc.edu." };
+  }
+  await createRa(name, netid || null);
   refreshAdmin();
+  return {};
+}
+
+/**
+ * Sets the NetID an RA signs in to /ra with. This is the access list for the
+ * RA availability portal, so an unknown NetID must not be able to claim a page.
+ */
+export async function setRaIdentityAction(
+  raId: string,
+  netidRaw: string,
+  emailRaw: string
+): Promise<{ error?: string }> {
+  await requireAdmin();
+  const netid = netidRaw.trim().toLowerCase();
+  const email = emailRaw.trim().toLowerCase();
+  if (netid && !NETID_RE.test(netid)) {
+    return { error: "NetID should be letters and numbers only, without @wisc.edu." };
+  }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { error: "That doesn't look like a valid email address." };
+  }
+  await setRaIdentity(raId, netid || null, email || null);
+  refreshAdmin();
+  return {};
 }
 
 export async function setRaActiveAction(raId: string, active: boolean): Promise<void> {
@@ -273,6 +271,33 @@ export async function toggleRaShiftAction(
 ): Promise<void> {
   await requireAdmin();
   await setRaShift(raId, shiftId, assigned);
+  refreshAdmin();
+}
+
+/** Makes one RA the head of a shift, demoting whoever held it before. */
+export async function setShiftHeadAction(raId: string, shiftId: string): Promise<void> {
+  await requireAdmin();
+  await setShiftHead(raId, shiftId);
+  refreshAdmin();
+}
+
+export async function clearShiftHeadAction(shiftId: string): Promise<void> {
+  await requireAdmin();
+  await clearShiftHead(shiftId);
+  refreshAdmin();
+}
+
+/**
+ * Per-session head override. Also marks that RA as covering the slot, since a
+ * head who isn't on the session doesn't count (see headRaBySlot in snapshot.ts).
+ */
+export async function setSlotHeadRaAction(
+  slotId: string,
+  raId: string | null
+): Promise<void> {
+  await requireAdmin();
+  if (raId) await setRaAvailability(raId, slotId, true);
+  await setSlotHeadRa(slotId, raId);
   refreshAdmin();
 }
 

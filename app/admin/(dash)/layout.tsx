@@ -2,13 +2,15 @@ import Link from "next/link";
 import { requireAdminPage } from "@/lib/admin-guard";
 import { logoutAdmin } from "../actions";
 
+// Four tabs, deliberately. Randy's feedback was that the old six-tab layout had
+// "way too many steps and way too much going on", so each tab is now one job:
+// today's sessions, the semester schedule, the people in the study, and the
+// live control center.
 const NAV = [
-  { href: "/admin", label: "Board" },
-  { href: "/admin/slots", label: "Shifts & RAs" },
-  { href: "/admin/schedule", label: "Scheduler" },
-  { href: "/admin/run", label: "Run session" },
-  { href: "/admin/participants", label: "Participants" },
-  { href: "/admin/emails", label: "Emails" },
+  { href: "/admin", label: "Today" },
+  { href: "/admin/schedule", label: "Schedule" },
+  { href: "/admin/people", label: "People" },
+  { href: "/admin/control", label: "Control Center" },
 ] as const;
 
 export default async function AdminLayout({
