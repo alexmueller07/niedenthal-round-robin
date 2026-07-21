@@ -12,19 +12,22 @@ import {
   requireAdmin,
 } from "@/lib/auth";
 import {
+  addBlackoutDate,
   clearShiftHead,
   createAssignment,
   createRa,
   createSlot,
   createSlotsBulk,
-  createWeeklyShift,
-  deleteWeeklyShift,
+  deleteSlots,
   getAssignment,
   getParticipantById,
   getSettings,
   getSlot,
   listAssignmentsForSlot,
+  listBlackoutDates,
+  listSlots,
   listWeeklyShifts,
+  removeBlackoutDate,
   setAssignmentLiveStatus,
   setAssignmentNeedsHelp,
   setAssignmentRole,
@@ -41,8 +44,12 @@ import {
   setSlotStatus,
   setWeeklyShiftActive,
   setWeeklyShiftPreferred,
+  setWeeklyShiftRooms,
+  slotIdsWithParticipants,
   updateSetting,
+  upsertWeeklyShift,
 } from "@/lib/db";
+import type { PaintBlock } from "@/lib/availability";
 import { baseUrl, sendEmail } from "@/lib/email";
 import { alternateToPromote, attendedRoster, isLive, propose } from "@/lib/engine";
 import { formatDate, formatTimeRange } from "@/lib/format";
@@ -123,8 +130,11 @@ export async function createFollowUpSlotAction(
   return {};
 }
 
-export async function cancelSlotAction(slotId: string): Promise<void> {
-  await requireAdmin();
+/**
+ * Cancels a session and tells everyone on it. Shared by the per-session Cancel
+ * button and by bulk removal, so nobody ever loses a session silently.
+ */
+async function cancelSlot(slotId: string): Promise<void> {
   const slot = await getSlot(slotId);
   if (!slot) return;
 
@@ -144,6 +154,11 @@ export async function cancelSlotAction(slotId: string): Promise<void> {
       });
     }
   }
+}
+
+export async function cancelSlotAction(slotId: string): Promise<void> {
+  await requireAdmin();
+  await cancelSlot(slotId);
   refreshAdmin();
 }
 
@@ -211,38 +226,71 @@ export async function toggleRaSlotAction(
 
 // -------------------------------------------------------------- weekly shifts
 
-export async function createWeeklyShiftAction(
-  formData: FormData
-): Promise<{ error?: string }> {
-  await requireAdmin();
-  const weekday = Number(formData.get("weekday"));
-  const startTime = String(formData.get("startTime") ?? "");
-  const endTime = String(formData.get("endTime") ?? "");
-  const roomCount = Math.min(3, Math.max(1, Number(formData.get("roomCount") ?? 3) || 3));
-  const preferred = formData.get("preferred") === "on";
-
-  if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) {
-    return { error: "Pick a day of the week." };
-  }
-  if (!TIME_RE.test(startTime) || !TIME_RE.test(endTime)) {
-    return { error: "Pick a start and end time." };
-  }
-  if (endTime <= startTime) return { error: "End time must be after start time." };
-
-  await createWeeklyShift({
-    weekday: weekday as Weekday,
-    startTime,
-    endTime,
-    roomCount,
-    preferred,
-  });
-  refreshAdmin();
-  return {};
+export interface WeeklyScheduleResult {
+  created: number;
+  retired: number;
+  error?: string;
 }
 
-export async function deleteWeeklyShiftAction(shiftId: string): Promise<void> {
+/**
+ * Replaces the weekly schedule with what the admin painted.
+ *
+ * Shifts that disappear from the paint are *deactivated*, never deleted:
+ * already-generated sessions reference them, and RAs are assigned to them.
+ * Deactivating stops future generation while keeping that history intact, and
+ * repainting the same time brings the original row (and its RA assignments)
+ * straight back.
+ */
+export async function setWeeklyScheduleAction(
+  painted: PaintBlock[]
+): Promise<WeeklyScheduleResult> {
   await requireAdmin();
-  await deleteWeeklyShift(shiftId);
+
+  if (!Array.isArray(painted) || painted.length > 200) {
+    return { created: 0, retired: 0, error: "Invalid selection." };
+  }
+  for (const b of painted) {
+    const weekday = Number(b.column);
+    if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) {
+      return { created: 0, retired: 0, error: "Invalid day in the painted schedule." };
+    }
+    if (!TIME_RE.test(b.startTime) || !TIME_RE.test(b.endTime) || b.endTime <= b.startTime) {
+      return { created: 0, retired: 0, error: "Invalid time in the painted schedule." };
+    }
+  }
+
+  const existing = await listWeeklyShifts();
+  const keep = new Set(painted.map((b) => `${Number(b.column)}|${b.startTime}`));
+
+  let created = 0;
+  for (const b of painted) {
+    const result = await upsertWeeklyShift({
+      weekday: Number(b.column) as Weekday,
+      startTime: b.startTime,
+      endTime: b.endTime,
+    });
+    if (result.created) created += 1;
+  }
+
+  let retired = 0;
+  for (const shift of existing) {
+    if (shift.active && !keep.has(`${shift.weekday}|${shift.startTime}`)) {
+      await setWeeklyShiftActive(shift.id, false);
+      retired += 1;
+    }
+  }
+
+  refreshAdmin();
+  return { created, retired };
+}
+
+export async function setWeeklyShiftRoomsAction(
+  shiftId: string,
+  roomCount: number
+): Promise<void> {
+  await requireAdmin();
+  const rooms = Math.min(3, Math.max(1, Math.floor(roomCount) || 3));
+  await setWeeklyShiftRooms(shiftId, rooms);
   refreshAdmin();
 }
 
@@ -323,7 +371,13 @@ export async function generateSemesterSlotsAction(): Promise<GenerateResult> {
     return { created: 0, error: "Semester end is before its start — fix the dates below." };
   }
 
-  const generated = generateShiftSlots(active, settings.semesterStart, settings.semesterEnd);
+  const blackout = new Set((await listBlackoutDates()).map((b) => b.date));
+  const generated = generateShiftSlots(
+    active,
+    settings.semesterStart,
+    settings.semesterEnd,
+    blackout
+  );
   const created = await createSlotsBulk(
     generated.map((g) => ({
       date: g.date,
@@ -336,6 +390,86 @@ export async function generateSemesterSlotsAction(): Promise<GenerateResult> {
   );
   refreshAdmin();
   return { created };
+}
+
+// ------------------------------------------------------------ blackout dates
+
+/**
+ * Marks a date as a no-session day. Any already-generated sessions on it are
+ * removed: empty ones are deleted outright, ones with people on them are
+ * canceled so those participants get an email rather than silently losing
+ * their session.
+ */
+export async function addBlackoutDateAction(
+  date: string,
+  label = ""
+): Promise<{ deleted: number; canceled: number; error?: string }> {
+  await requireAdmin();
+  if (!DATE_RE.test(date)) return { deleted: 0, canceled: 0, error: "Invalid date." };
+
+  await addBlackoutDate(date, label.slice(0, 80));
+
+  const onThatDay = (await listSlots()).filter(
+    (s) => s.date === date && s.status !== "canceled"
+  );
+  const { deleted, canceled } = await removeSessions(onThatDay.map((s) => s.id));
+
+  refreshAdmin();
+  return { deleted, canceled };
+}
+
+export async function removeBlackoutDateAction(date: string): Promise<void> {
+  await requireAdmin();
+  if (!DATE_RE.test(date)) return;
+  await removeBlackoutDate(date);
+  refreshAdmin();
+}
+
+// -------------------------------------------------------- deleting sessions
+
+/**
+ * Removes sessions, splitting by whether anyone is counting on them: empty
+ * sessions are hard-deleted, sessions with live or attended assignments go
+ * through cancelSlot so their participants are emailed and re-queued.
+ */
+async function removeSessions(
+  slotIds: readonly string[]
+): Promise<{ deleted: number; canceled: number }> {
+  if (slotIds.length === 0) return { deleted: 0, canceled: 0 };
+  const withPeople = await slotIdsWithParticipants(slotIds);
+
+  const deletable = slotIds.filter((id) => !withPeople.has(id));
+  const deleted = await deleteSlots(deletable);
+
+  let canceled = 0;
+  for (const id of slotIds) {
+    if (!withPeople.has(id)) continue;
+    await cancelSlot(id);
+    canceled += 1;
+  }
+  return { deleted, canceled };
+}
+
+export interface DeleteSessionsResult {
+  deleted: number;
+  canceled: number;
+  error?: string;
+}
+
+/** Bulk "undo a generation" — everything generated in a date range. */
+export async function deleteSessionsAction(
+  slotIds: string[]
+): Promise<DeleteSessionsResult> {
+  await requireAdmin();
+  if (!Array.isArray(slotIds) || slotIds.length === 0) {
+    return { deleted: 0, canceled: 0, error: "Nothing selected." };
+  }
+  if (slotIds.length > 2000) {
+    return { deleted: 0, canceled: 0, error: "Too many sessions in one go." };
+  }
+  const result = await removeSessions(slotIds);
+  refreshAdmin();
+  return result;
 }
 
 // --------------------------------------------------------------- participants

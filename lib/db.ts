@@ -259,13 +259,21 @@ export async function listWeeklyShifts(): Promise<WeeklyShift[]> {
   return rows.map(toWeeklyShift);
 }
 
-export async function createWeeklyShift(input: {
+/**
+ * Upserts a weekly shift by (weekday, start_time).
+ *
+ * On conflict this deliberately does NOT touch room_count or preferred: the
+ * schedule painter re-saves every shift on every save, and those two are set
+ * separately per shift. Overwriting them here would silently reset an admin's
+ * choices each time they repainted. Returns whether a new row was inserted.
+ */
+export async function upsertWeeklyShift(input: {
   weekday: Weekday;
   startTime: string;
   endTime: string;
   roomCount?: number;
   preferred?: boolean;
-}): Promise<WeeklyShift> {
+}): Promise<{ shift: WeeklyShift; created: boolean }> {
   const sql = getSql();
   const rows = await sql`
     INSERT INTO weekly_shifts (weekday, start_time, end_time, room_count, preferred)
@@ -273,11 +281,14 @@ export async function createWeeklyShift(input: {
             ${input.roomCount ?? 3}, ${input.preferred ?? false})
     ON CONFLICT (weekday, start_time) DO UPDATE
       SET end_time = EXCLUDED.end_time,
-          room_count = EXCLUDED.room_count,
-          preferred = EXCLUDED.preferred,
           active = TRUE
-    RETURNING *;`;
-  return toWeeklyShift(rows[0]);
+    RETURNING *, (xmax = 0) AS inserted;`;
+  return { shift: toWeeklyShift(rows[0]), created: Boolean(rows[0].inserted) };
+}
+
+export async function setWeeklyShiftRooms(id: string, roomCount: number): Promise<void> {
+  const sql = getSql();
+  await sql`UPDATE weekly_shifts SET room_count = ${roomCount} WHERE id = ${id};`;
 }
 
 export async function setWeeklyShiftActive(id: string, active: boolean): Promise<void> {

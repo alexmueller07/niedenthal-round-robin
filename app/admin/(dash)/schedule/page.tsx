@@ -4,9 +4,11 @@
 // than somewhere else you had to remember to visit.
 
 import { requireAdminPage } from "@/lib/admin-guard";
+import { isLive } from "@/lib/engine";
 import { loadFullState } from "@/lib/snapshot";
 import RaGrid from "./RaGrid";
 import ScheduleRunner from "./ScheduleRunner";
+import SemesterCalendar from "./SemesterCalendar";
 import SemesterPanel from "./SemesterPanel";
 import SettingsForm from "./SettingsForm";
 import ShiftAssignmentGrid from "./ShiftAssignmentGrid";
@@ -46,10 +48,12 @@ export default async function SchedulePage() {
   const {
     slots,
     ras,
+    assignments,
     raAvailability,
     weeklyShifts,
     raShifts,
     raShiftPreferences,
+    blackoutDates,
     settings,
     snapshot,
   } = await loadFullState();
@@ -57,13 +61,22 @@ export default async function SchedulePage() {
   const activeRas = ras.filter((r) => r.active);
   const activeShiftCount = weeklyShifts.filter((s) => s.active).length;
 
-  const existingSessions = slots.filter(
+  const generated = slots.filter(
     (s) =>
       s.shiftId !== null &&
       s.status !== "canceled" &&
       s.date >= settings.semesterStart &&
       s.date <= settings.semesterEnd
-  ).length;
+  );
+
+  // Sessions somebody is counting on: removing these has to email people
+  // rather than delete quietly.
+  const withPeople = new Set(
+    assignments
+      .filter((a) => isLive(a.status) || a.status === "attended")
+      .map((a) => a.slotId)
+  );
+  const generatedWithPeople = generated.filter((s) => withPeople.has(s.id));
 
   // The per-slot coverage grid is only for follow-up sessions: shift-generated
   // sessions get their coverage from the assignment grid in step 2.
@@ -114,8 +127,25 @@ export default async function SchedulePage() {
             <SemesterPanel
               semesterStart={settings.semesterStart}
               semesterEnd={settings.semesterEnd}
-              existingSessions={existingSessions}
+              generatedSlotIds={generated.map((s) => s.id)}
+              withPeopleCount={generatedWithPeople.length}
               activeShiftCount={activeShiftCount}
+            />
+          </div>
+
+          <div className="card p-6">
+            <h3 className="mb-1 font-bold">Calendar &amp; days off</h3>
+            <p className="mb-4 text-sm text-ink-soft">
+              Click a day to skip it — holidays, breaks, finals week. Skipping a day
+              removes the sessions already generated on it.
+            </p>
+            <SemesterCalendar
+              semesterStart={settings.semesterStart}
+              semesterEnd={settings.semesterEnd}
+              blackoutDates={blackoutDates}
+              sessions={generated.map((s) => ({ id: s.id, date: s.date }))}
+              sessionsWithPeople={generatedWithPeople.map((s) => s.id)}
+              today={snapshot.today}
             />
           </div>
 
