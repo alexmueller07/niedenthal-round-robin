@@ -198,8 +198,8 @@ export default function RaGrid({ slots, ras, availability, minRas }: RaGridProps
       </div>
       {ras.length === 0 && (
         <p className="text-sm text-amber-700">
-          Add RAs on the People page to mark coverage — sessions without {minRas} RAs and a
-          head RA won&apos;t be scheduled.
+          Add RAs on the People page to mark coverage — sessions with fewer than {minRas}{" "}
+          RAs won&apos;t be scheduled.
         </p>
       )}
     </div>

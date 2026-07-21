@@ -204,6 +204,14 @@ export interface Settings {
   semesterEnd: string;
   /** Conversation length; drives the room recorder's auto-stop. */
   conversationMinutes: number;
+  /**
+   * When true, a session without a designated head RA is not fillable at all.
+   * When false (default) it still fills, but is flagged everywhere it appears.
+   *
+   * Randy asked for a head RA to be required; this is off for now so scheduling
+   * isn't blocked before heads are assigned. Flip it on from Advanced settings.
+   */
+  requireHeadRa: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -215,4 +223,5 @@ export const DEFAULT_SETTINGS: Settings = {
   semesterStart: "2026-09-02",
   semesterEnd: "2026-12-11",
   conversationMinutes: 10,
+  requireHeadRa: false,
 };

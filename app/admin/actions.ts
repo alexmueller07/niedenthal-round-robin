@@ -493,6 +493,7 @@ export async function updateSettingsAction(formData: FormData): Promise<{ error?
     { form: "overrecruit", key: "overrecruit", min: 0, max: 10 },
     { form: "minRas", key: "min_ras", min: 1, max: 10 },
     { form: "seed", key: "seed", min: 1, max: Number.MAX_SAFE_INTEGER },
+    { form: "conversationMinutes", key: "conversation_minutes", min: 1, max: 120 },
   ];
   const values = new Map<string, number>();
   for (const f of fields) {
@@ -509,6 +510,10 @@ export async function updateSettingsAction(formData: FormData): Promise<{ error?
   for (const [key, value] of values) {
     await updateSetting(key, String(value));
   }
+  await updateSetting(
+    "require_head_ra",
+    formData.get("requireHeadRa") === "on" ? "true" : "false"
+  );
   refreshAdmin();
   return {};
 }
@@ -545,6 +550,8 @@ export interface ScheduleSummary {
   }>;
   unfillable: Array<{ label: string; eligible: number; needed: number }>;
   unplacedCount: number;
+  /** Sessions being filled with nobody designated to lead them. */
+  headless: string[];
   applied: boolean;
 }
 
@@ -581,6 +588,7 @@ async function computeSchedule(apply: boolean): Promise<ScheduleSummary> {
       needed: u.needed,
     })),
     unplacedCount: proposal.unplaced.length,
+    headless: proposal.headless.map(labelFor),
     applied: apply,
   };
 

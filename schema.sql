@@ -155,6 +155,12 @@ UPDATE settings SET value = '4'
 INSERT INTO settings (key, value) VALUES ('min_ras_v2', 'applied')
 ON CONFLICT (key) DO NOTHING;
 
+-- Whether a missing head RA blocks scheduling outright or is only flagged.
+-- Randy asked for "required"; it ships off so scheduling isn't blocked before
+-- heads have been assigned. Toggle it from Advanced settings.
+INSERT INTO settings (key, value) VALUES ('require_head_ra', 'false')
+ON CONFLICT (key) DO NOTHING;
+
 -- ===========================================================================
 -- Blackout dates — semester generation skips these (holidays, breaks, finals)
 -- ===========================================================================

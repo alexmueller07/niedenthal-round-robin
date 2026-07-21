@@ -214,9 +214,10 @@ export default function ShiftAssignmentGrid({
         </table>
       </div>
       <p className="text-xs text-stone-500">
-        ✓ assigns an RA to a shift for the whole semester · ☆ marks the head RA (required —
-        a shift without one will not be filled) · a tinted empty cell means that RA said
-        they&apos;re free then.
+        ✓ assigns an RA to a shift for the whole semester · ☆ marks the head RA · a tinted
+        empty cell means that RA said they&apos;re free then. Sessions without a head are
+        flagged everywhere; turn on &ldquo;require a head RA&rdquo; in Advanced to block
+        them from being filled instead.
       </p>
     </div>
   );

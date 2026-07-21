@@ -741,6 +741,7 @@ export async function getSettings(): Promise<Settings> {
       "conversation_minutes",
       DEFAULT_SETTINGS.conversationMinutes
     ),
+    requireHeadRa: (map.get("require_head_ra") ?? "false") === "true",
   };
 }
 

@@ -52,6 +52,23 @@ export default function ScheduleRunner() {
             </p>
           )}
 
+          {summary.headless.length > 0 && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <p className="font-semibold">
+                {summary.headless.length} session
+                {summary.headless.length === 1 ? "" : "s"} have no head RA
+              </p>
+              <p className="mt-1">
+                {summary.headless.join(" · ")}
+              </p>
+              <p className="mt-1.5 text-xs">
+                They will still be filled. Assign a head with the ☆ in the staffing grid
+                above, or turn on &ldquo;require a head RA&rdquo; in Advanced to block
+                these instead.
+              </p>
+            </div>
+          )}
+
           {summary.slots.length === 0 && (
             <p className="text-sm text-ink-soft">
               Nothing to schedule right now — either every available participant is

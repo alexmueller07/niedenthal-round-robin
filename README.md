@@ -44,10 +44,14 @@ what, and the staffing grid just tints the cells an RA offered.
 the source of truth for when the lab runs. `generateShiftSlots` expands the
 active shifts into dated `slots` across the semester window, skipping blackout
 dates; each generated slot's RA coverage is derived from the RAs assigned to its
-shift. A session is only fillable with `min_ras` RAs **and** a designated head
-RA. Repainting the schedule deactivates dropped shifts rather than deleting
-them, so generated sessions and RA assignments survive. Week-to-week swaps are
-handled off-app (an RA emails Randy).
+shift. A session needs `min_ras` RAs to be fillable. It should also have a
+designated **head RA**: with the `require_head_ra` setting on, a headless
+session isn't fillable at all (what Randy asked for); with it off — the default,
+so scheduling isn't blocked before heads are assigned — the session still fills
+but is flagged on the board, in the staffing grid, and in the scheduler preview.
+Toggle it under Schedule → Advanced. Repainting the schedule deactivates dropped
+shifts rather than deleting them, so generated sessions and RA assignments
+survive. Week-to-week swaps are handled off-app (an RA emails Randy).
 
 **Control Center** (`/admin/control`) is the admin counterpart to the PPS app.
 Each conversation room runs a kiosk page (`/room/[slotId]/[roomIndex]`) that

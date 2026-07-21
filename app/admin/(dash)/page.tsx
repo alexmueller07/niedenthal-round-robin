@@ -175,8 +175,11 @@ export default async function TodayPage() {
             {headless.length > 0 && (
               <li>
                 <strong>{headless.length}</strong> staffed session
-                {headless.length === 1 ? " has" : "s have"} no head RA and won&apos;t be
-                filled —{" "}
+                {headless.length === 1 ? " has" : "s have"} no head RA
+                {settings.requireHeadRa
+                  ? " and won't be filled until one is assigned"
+                  : " — they'll still be filled, but nobody is designated to lead them"}{" "}
+                —{" "}
                 <Link
                   href="/admin/schedule"
                   className="font-semibold underline underline-offset-4"
