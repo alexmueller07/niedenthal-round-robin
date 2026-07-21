@@ -69,6 +69,14 @@ export default function RoomStation({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingIdRef = useRef<string | null>(null);
   const startedAtRef = useRef<number>(0);
+  /**
+   * Chunk uploads are chained rather than fired in parallel. The server appends
+   * each chunk to the file, so two uploads in flight at once can land out of
+   * order and corrupt the video. Chaining also gives `onstop` something to
+   * await, so the recording isn't closed before its last chunk has landed.
+   */
+  const uploadChainRef = useRef<Promise<void>>(Promise.resolve());
+  const uploadFailedRef = useRef(false);
 
   const conversationSeconds = Math.max(60, conversationMinutes * 60);
 
@@ -149,20 +157,29 @@ export default function RoomStation({
 
       const recorder = new MediaRecorder(stream, { mimeType });
       recorderRef.current = recorder;
+      uploadChainRef.current = Promise.resolve();
+      uploadFailedRef.current = false;
 
-      recorder.ondataavailable = async (event) => {
+      recorder.ondataavailable = (event) => {
         if (event.data.size === 0 || !recordingIdRef.current) return;
-        try {
-          await fetch(`/api/recordings/${recordingIdRef.current}/chunk`, {
-            method: "POST",
-            headers: { "Content-Type": "application/octet-stream" },
-            body: event.data,
-          });
-        } catch {
-          // Keep recording — a dropped chunk is better than aborting the take.
-          // Close() reports the shortfall, and the control center shows it.
-          setError("A chunk failed to upload — check the recording drive.");
-        }
+        const id = recordingIdRef.current;
+        const blob = event.data;
+        // Queue behind whatever is already uploading so chunks append in order.
+        uploadChainRef.current = uploadChainRef.current.then(async () => {
+          try {
+            const res = await fetch(`/api/recordings/${id}/chunk`, {
+              method: "POST",
+              headers: { "Content-Type": "application/octet-stream" },
+              body: blob,
+            });
+            if (!res.ok) throw new Error(String(res.status));
+          } catch {
+            // Keep recording — a dropped chunk is better than aborting the
+            // take — but remember, so the take isn't reported as clean.
+            uploadFailedRef.current = true;
+            setError("A chunk failed to upload — check the recording drive.");
+          }
+        });
       };
 
       recorder.onstop = async () => {
@@ -171,17 +188,26 @@ export default function RoomStation({
         recordingIdRef.current = null;
         if (!id) return;
         try {
+          // Wait for every queued chunk, including the final one MediaRecorder
+          // emits just before this fires. Closing first would mark a perfectly
+          // good recording as failed, or truncate its tail.
+          await uploadChainRef.current;
           const res = await fetch(`/api/recordings/${id}/close`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ durationMs: Date.now() - startedAtRef.current }),
           });
           const result = (await res.json()) as { status: string };
-          if (result.status === "stored") {
-            setPhase("done");
-          } else {
+          if (result.status !== "stored") {
             setError("Nothing was written to the drive — tell an RA before the next round.");
             setPhase("error");
+          } else if (uploadFailedRef.current) {
+            // The file exists but is missing at least one chunk, so it is not
+            // a clean take even though the server stored it.
+            setError("Saved, but part of the conversation failed to upload — tell an RA.");
+            setPhase("error");
+          } else {
+            setPhase("done");
           }
         } catch {
           setError("Couldn't finalize the recording. Tell an RA before the next round.");
