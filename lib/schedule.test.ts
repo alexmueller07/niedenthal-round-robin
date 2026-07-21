@@ -76,6 +76,43 @@ describe("generateShiftSlots", () => {
     expect(result[0].preferred).toBe(true);
   });
 
+  it("skips blackout dates", () => {
+    const result = generateShiftSlots(
+      [shift()],
+      "2026-09-02",
+      "2026-09-30",
+      new Set(["2026-09-14", "2026-09-28"])
+    );
+    expect(result.map((s) => s.date)).toEqual(["2026-09-07", "2026-09-21"]);
+  });
+
+  it("blacks out every shift on a date, not just one", () => {
+    const shifts = [
+      shift({ id: "mon-am", startTime: "09:00", endTime: "11:00" }),
+      shift({ id: "mon-pm", startTime: "14:00", endTime: "16:00" }),
+    ];
+    const result = generateShiftSlots(
+      shifts,
+      "2026-09-07",
+      "2026-09-14",
+      new Set(["2026-09-07"])
+    );
+    expect(result.map((s) => `${s.date} ${s.startTime}`)).toEqual([
+      "2026-09-14 09:00",
+      "2026-09-14 14:00",
+    ]);
+  });
+
+  it("ignores blackout dates that fall outside the semester window", () => {
+    const result = generateShiftSlots(
+      [shift()],
+      "2026-09-07",
+      "2026-09-14",
+      new Set(["2026-12-25"])
+    );
+    expect(result.map((s) => s.date)).toEqual(["2026-09-07", "2026-09-14"]);
+  });
+
   it("sorts mixed shifts by date then start time", () => {
     const shifts = [
       shift({ id: "wed", weekday: 3, startTime: "10:00", endTime: "12:00" }),

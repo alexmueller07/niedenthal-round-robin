@@ -18,7 +18,8 @@ function slot(id: string, date: string, overrides: Partial<EngineSlot> = {}): En
     date,
     startTime: "14:00",
     status: "open",
-    raCount: 2,
+    raCount: DEFAULT_SETTINGS.minRas,
+    hasHead: true,
     followUpOf: null,
     ...overrides,
   };
@@ -181,6 +182,41 @@ describe("propose", () => {
       })
     );
     expect(result.slots.map((s) => s.slotId)).toEqual(["good"]);
+  });
+
+  it("will not fill a fully staffed session that has no head RA", () => {
+    // Randy's rule: a session needs a designated head RA, not just enough bodies.
+    const people = participants(8);
+    const result = propose(
+      snapshot({
+        slots: [
+          slot("headless", "2026-07-20", { hasHead: false }),
+          slot("led", "2026-07-22"),
+        ],
+        participants: people,
+        availability: availabilityFor(people, ["headless", "led"]),
+      })
+    );
+    expect(result.slots.map((s) => s.slotId)).toEqual(["led"]);
+  });
+
+  it("counts a headless session as unstaffed even at full RA coverage", () => {
+    const people = participants(8);
+    const result = propose(
+      snapshot({
+        slots: [
+          slot("headless", "2026-07-20", {
+            raCount: DEFAULT_SETTINGS.minRas + 2,
+            hasHead: false,
+          }),
+        ],
+        participants: people,
+        availability: availabilityFor(people, ["headless"]),
+      })
+    );
+    expect(result.slots).toEqual([]);
+    // Not "unfillable" either — it was never a candidate to begin with.
+    expect(result.unfillable).toEqual([]);
   });
 
   it("prioritizes participants with fewer attended sessions", () => {

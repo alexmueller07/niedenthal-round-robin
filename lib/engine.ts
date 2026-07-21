@@ -17,6 +17,8 @@ export interface EngineSlot {
   startTime: string; // HH:MM — sortable lexicographically
   status: SlotStatus;
   raCount: number;
+  /** A session needs a designated head RA, not just enough bodies. */
+  hasHead: boolean;
   followUpOf: string | null;
 }
 
@@ -146,11 +148,15 @@ export function propose(snapshot: EngineSnapshot): EngineProposal {
     }
   }
 
-  // Candidate slots: upcoming, open, staffed by enough RAs; earliest first.
+  // Candidate slots: upcoming, open, and properly staffed — enough RAs AND a
+  // designated head RA. Earliest first.
   const candidates = snapshot.slots
     .filter(
       (s) =>
-        s.status === "open" && isUpcoming(s, today) && s.raCount >= settings.minRas
+        s.status === "open" &&
+        isUpcoming(s, today) &&
+        s.raCount >= settings.minRas &&
+        s.hasHead
     )
     .sort((a, b) =>
       a.date === b.date ? a.startTime.localeCompare(b.startTime) : a.date.localeCompare(b.date)

@@ -55,18 +55,21 @@ export interface GeneratedSlot {
 
 /**
  * Expands active weekly shifts into dated slots across [start, end]. Inactive
- * shifts are skipped. Deterministic: sorted by date then start time so a caller
- * can dedupe against existing slots stably.
+ * shifts are skipped, as are any dates in `blackout` (holidays, breaks, finals).
+ * Deterministic: sorted by date then start time so a caller can dedupe against
+ * existing slots stably.
  */
 export function generateShiftSlots(
   shifts: readonly WeeklyShift[],
   start: string,
-  end: string
+  end: string,
+  blackout: ReadonlySet<string> = new Set()
 ): GeneratedSlot[] {
   const out: GeneratedSlot[] = [];
   for (const shift of shifts) {
     if (!shift.active) continue;
     for (const date of weekdayDatesBetween(start, end, shift.weekday)) {
+      if (blackout.has(date)) continue;
       out.push({
         date,
         startTime: shift.startTime,
