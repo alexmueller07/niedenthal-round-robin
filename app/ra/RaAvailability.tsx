@@ -14,7 +14,7 @@ import { formatTimeRange } from "@/lib/format";
 import { shiftsCoveredBy, weekdayName } from "@/lib/schedule";
 import type { WeeklyShift } from "@/lib/types";
 import PaintGrid, { type PaintColumn } from "@/app/components/PaintGrid";
-import { saveRaAvailability, signOutRa } from "./actions";
+import { saveRaAvailability } from "./actions";
 
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 0] as const;
 const SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
@@ -25,7 +25,6 @@ const COLUMNS: PaintColumn[] = WEEKDAYS.map((w) => ({
 }));
 
 interface RaAvailabilityProps {
-  raName: string;
   shifts: WeeklyShift[];
   /** Shift ids this RA previously submitted. */
   selectedShiftIds: string[];
@@ -47,7 +46,6 @@ function shiftsToBlocks(
 }
 
 export default function RaAvailability({
-  raName,
   shifts,
   selectedShiftIds,
   submittedAt,
@@ -93,21 +91,10 @@ export default function RaAvailability({
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Hi {raName}</h1>
-          <p className="mt-1 text-sm text-ink-soft">
-            Paint the hours you can work each week. The same schedule repeats all
-            semester.
-            {submittedAt && " You've submitted before — this shows what you sent."}
-          </p>
-        </div>
-        <form action={signOutRa}>
-          <button type="submit" className="btn-ghost px-4 py-2 text-xs">
-            Sign out
-          </button>
-        </form>
-      </header>
+      <p className="text-sm text-ink-soft">
+        Paint the hours you can work each week. The same schedule repeats all semester.
+        {submittedAt && " You've submitted before — this shows what you sent."}
+      </p>
 
       {active.length === 0 ? (
         <div className="card p-6 text-sm text-ink-soft">

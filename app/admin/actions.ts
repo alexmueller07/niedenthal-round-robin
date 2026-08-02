@@ -28,6 +28,7 @@ import {
   listSlots,
   listWeeklyShifts,
   removeBlackoutDate,
+  saveRaLinks,
   setAssignmentLiveStatus,
   setAssignmentNeedsHelp,
   setAssignmentRole,
@@ -61,7 +62,13 @@ import {
   invitationEmail,
   rescheduleEmail,
 } from "@/lib/templates";
-import type { AssignmentRole, LiveStatus, ParticipantStatus, Weekday } from "@/lib/types";
+import type {
+  AssignmentRole,
+  LiveStatus,
+  ParticipantStatus,
+  RaLink,
+  Weekday,
+} from "@/lib/types";
 
 const LIVE_STATUSES: LiveStatus[] = ["waiting", "in_conversation", "at_survey", "done"];
 const CONVERSATION_ROUNDS = 3;
@@ -819,4 +826,53 @@ export async function resolveHelpAction(assignmentId: string): Promise<void> {
   await requireAdmin();
   await setAssignmentNeedsHelp(assignmentId, false);
   refreshAdmin();
+}
+
+// ------------------------------------------------------------------ RA links
+
+/** Only http(s). A link in this list is opened by RAs without a second thought. */
+function normalizeUrl(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const parsed = new URL(withScheme);
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+      ? parsed.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Replaces the RA quick-links list. Rows with no name or no usable link are
+ * dropped rather than rejected — a half-typed row someone abandoned should not
+ * block saving the rest.
+ */
+export async function saveRaLinksAction(
+  links: RaLink[]
+): Promise<{ error?: string; links?: RaLink[] }> {
+  await requireAdmin();
+  if (!Array.isArray(links)) return { error: "Invalid links." };
+  if (links.length > 50) return { error: "That's more links than this list is for." };
+
+  const seen = new Set<string>();
+  const cleaned: RaLink[] = [];
+  for (const [index, link] of links.entries()) {
+    const label = String(link?.label ?? "").trim();
+    const url = normalizeUrl(String(link?.url ?? ""));
+    if (label === "" || url === null) continue;
+
+    let id = String(link?.id ?? "").trim() || `link-${index + 1}`;
+    while (seen.has(id)) id = `${id}-${index + 1}`;
+    seen.add(id);
+
+    cleaned.push({ id, label, url, note: String(link?.note ?? "").trim() });
+  }
+
+  await saveRaLinks(cleaned);
+  refreshAdmin();
+  revalidatePath("/ra");
+  return { links: cleaned };
 }

@@ -15,6 +15,7 @@ import type {
   Participant,
   ParticipantStatus,
   Ra,
+  RaLink,
   Recording,
   RecordingStatus,
   RoomDevice,
@@ -750,6 +751,40 @@ export async function updateSetting(key: string, value: string): Promise<void> {
   await sql`
     INSERT INTO settings (key, value) VALUES (${key}, ${value})
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;`;
+}
+
+// ------------------------------------------------------------------- RA links
+
+const RA_LINKS_KEY = "ra_links";
+
+/**
+ * The RA quick-links list. Unreadable or malformed JSON returns an empty list
+ * rather than throwing: a bad value in one settings row must not take down the
+ * page an RA opens mid-session.
+ */
+export async function listRaLinks(): Promise<RaLink[]> {
+  const sql = getSql();
+  const rows = await sql`SELECT value FROM settings WHERE key = ${RA_LINKS_KEY};`;
+  if (rows.length === 0) return [];
+  try {
+    const parsed = JSON.parse(asString(rows[0].value)) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((entry): RaLink[] => {
+      if (typeof entry !== "object" || entry === null) return [];
+      const { id, label, url, note } = entry as Partial<RaLink>;
+      if (typeof id !== "string" || typeof label !== "string" || typeof url !== "string") {
+        return [];
+      }
+      return [{ id, label, url, note: typeof note === "string" ? note : "" }];
+    });
+  } catch {
+    console.error("ra_links is not valid JSON — showing no links");
+    return [];
+  }
+}
+
+export async function saveRaLinks(links: readonly RaLink[]): Promise<void> {
+  await updateSetting(RA_LINKS_KEY, JSON.stringify(links));
 }
 
 // ------------------------------------------------- Panopticon Control Center
