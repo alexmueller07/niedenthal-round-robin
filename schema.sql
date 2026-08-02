@@ -255,3 +255,19 @@ CREATE INDEX IF NOT EXISTS signals_inbox_idx ON signals (to_device, id);
 ALTER TABLE assignments ADD COLUMN IF NOT EXISTS pps_stage TEXT;
 ALTER TABLE assignments ADD COLUMN IF NOT EXISTS pps_percent INTEGER;
 ALTER TABLE assignments ADD COLUMN IF NOT EXISTS pps_updated_at TIMESTAMPTZ;
+
+-- ===========================================================================
+-- RA quick links (Reese, 2026-07-31)
+-- ===========================================================================
+
+-- The links RAs need while running a session, as a JSON array of
+-- {id, label, url, note}. One settings row rather than a table: a short list
+-- only Randy edits, with nothing joining to it. Seeded with the links already
+-- circulating by email; edit them on the Links tab.
+INSERT INTO settings (key, value) VALUES ('ra_links', '[
+  {"id":"script","label":"Round Robin session script","url":"https://docs.google.com/document/d/1Bhiy56CEyikINCR_TP-d44FIaU57FbYKy7xiDR0UuiI/edit","note":"What to say to participants, start to finish. Read from this."},
+  {"id":"app-notes","label":"App feedback doc","url":"https://docs.google.com/document/d/1qPgWmi_rsy3MYCZrF5ijJ1wlBvYwmJJaLjxwJRWwnBQ/edit","note":"Anything you notice while running a session goes here."},
+  {"id":"lab-site","label":"Niedenthal Emotions Lab","url":"https://niedenthal.psych.wisc.edu","note":"Lab website."},
+  {"id":"sona","label":"SONA","url":"https://uwmadison.sona-systems.com","note":"Granting credit and checking sign-ups."}
+]')
+ON CONFLICT (key) DO NOTHING;

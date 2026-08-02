@@ -192,6 +192,22 @@ export interface EmailLogEntry {
   createdAt: string;
 }
 
+/**
+ * A link RAs need while running sessions — the script, the protocol, SONA.
+ *
+ * Reese, 2026-07-31: "Could we add a tab up top with links that direct RAs to
+ * the script and other links that they could need." Stored as one JSON blob in
+ * `settings` rather than its own table: it is a short, hand-curated list that
+ * only Randy edits, and nothing joins to it.
+ */
+export interface RaLink {
+  id: string;
+  label: string;
+  url: string;
+  /** One line of context: what it's for, or when to use it. */
+  note: string;
+}
+
 export interface Settings {
   groupMin: number;
   groupMax: number;
