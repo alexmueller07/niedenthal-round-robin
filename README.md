@@ -20,25 +20,39 @@ a subtle "filling up" nudge and an explicit "none of these times work for me"
 escape so nobody leaves availability blank. They see their current session with
 a one-tap confirm. Invitation emails carry a signed one-click confirm link.
 
-**RAs** (`/admin`, shared lab password) — four tabs, each one job:
+**RAs** (`/admin`, shared lab password) — one tab, one job:
 
 | Tab | What it does |
 |---|---|
 | Today | What's running right now with a direct route into the live console, what needs a decision, what's coming up |
 | Schedule | Three steps: **paint** the weekly grid → staff it (4 RAs + a head RA) → publish the semester. Includes the days-off calendar, session generation, bulk removal, and the engine's fill proposal |
+| Roster | Read-only: who works which shift, head RA starred, and the dated sessions coming up. Click a name to email them |
 | People | Participants, the RA roster (incl. NetIDs and who hasn't submitted availability), and the full email log |
 | Control Center | Live room cameras, recording control, capture coverage, participant progress |
+| Links | The script, the feedback doc, SONA — whatever an RA opens mid-session. Edited here, shown to every RA |
 
 Sub-pages: a session page (one-tap check-in / no-show, which auto-promotes a
 confirmed alternate and auto-reschedules the no-show; roster CSV export incl.
 NetID; follow-up creation) and the live session console (room rotation, rounds,
 help flags).
 
-**RAs submitting availability** (`/ra`): an RA signs in with a NetID an admin
-pre-registered, then paints the hours they can work. `shiftsCoveredBy` turns
-that into concrete shifts — a shift counts only when the paint spans all of it.
-Submissions are availability, not assignment: Randy still decides who staffs
-what, and the staffing grid just tints the cells an RA offered.
+**RA portal** (`/ra`): an RA signs in with a NetID an admin pre-registered and
+gets three tabs (Reese, 2026-07-31).
+
+- **Links** — the same list Randy curates on the admin Links tab, so nobody has
+  to dig the script out of an email thread mid-session.
+- **Who's in** — the roster: the standing week, then the actual dated sessions
+  ahead, with the signed-in RA highlighted and every name a `mailto:`. This is
+  the "who can cover for me" screen. Out of term the two-week window is empty,
+  so it falls back to the next few sessions and says so (`sessionsAhead`).
+- **My availability** — paints the hours they can work. `shiftsCoveredBy` turns
+  that into concrete shifts; a shift counts only when the paint spans all of it.
+  Submissions are availability, not assignment: Randy still decides who staffs
+  what, and the staffing grid just tints the cells an RA offered.
+
+`lib/roster.ts` builds both roster views and is pure and unit-tested; the same
+`WeeklyRoster` component renders the admin Roster tab and the RA one, so they
+can't drift apart.
 
 **Shift model** (`lib/schedule.ts`): weekly shifts (weekday + time + rooms) are
 the source of truth for when the lab runs. `generateShiftSlots` expands the

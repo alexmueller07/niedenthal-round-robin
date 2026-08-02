@@ -2,15 +2,21 @@ import Link from "next/link";
 import { requireAdminPage } from "@/lib/admin-guard";
 import { logoutAdmin } from "../actions";
 
-// Four tabs, deliberately. Randy's feedback was that the old six-tab layout had
-// "way too many steps and way too much going on", so each tab is now one job:
-// today's sessions, the semester schedule, the people in the study, and the
-// live control center.
+// One tab, one job. Randy's feedback was that the old six-tab layout had "way
+// too many steps and way too much going on", so the set stays tight: today's
+// sessions, the semester schedule, who's working when, the people in the study,
+// the live control center, and the links RAs need mid-session.
+//
+// Roster and Links are both read-mostly and were added for the RAs (Reese,
+// 2026-07-31) — they sit after the pages that set things up, because seeing is
+// the common case and editing is the rare one.
 const NAV = [
   { href: "/admin", label: "Today" },
   { href: "/admin/schedule", label: "Schedule" },
+  { href: "/admin/roster", label: "Roster" },
   { href: "/admin/people", label: "People" },
   { href: "/admin/control", label: "Control Center" },
+  { href: "/admin/links", label: "Links" },
 ] as const;
 
 export default async function AdminLayout({
