@@ -192,9 +192,9 @@ export default function RunConsole({
                   </div>
                   <div className="p-4">
                     {dyad ? (
-                      <div className="space-y-1.5">
+                      <div className="space-y-1.5 text-center">
                         <p className="text-lg font-semibold">{name(dyad.a)}</p>
-                        <p className="text-center text-xs text-stone-400">&amp;</p>
+                        <p className="text-xs text-stone-400">&amp;</p>
                         <p className="text-lg font-semibold">{name(dyad.b)}</p>
                       </div>
                     ) : (

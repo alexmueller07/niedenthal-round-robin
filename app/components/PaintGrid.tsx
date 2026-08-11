@@ -178,7 +178,10 @@ export default function PaintGrid({
           {/* time rows */}
           {times.map((time) => (
             <div key={time} className="contents">
-              <div className="relative -top-1.5 pr-2 text-right text-[10px] leading-none text-stone-400">
+              {/* Vertically centered against the h-5 cell row instead of the
+                  old hard-coded -top-1.5 nudge, which broke the moment row
+                  height or font size changed. */}
+              <div className="flex h-5 items-center justify-end pr-2 text-[10px] leading-none text-stone-400">
                 {time.endsWith(":00") ? formatTime(time) : ""}
               </div>
               {visible.map((col) => {

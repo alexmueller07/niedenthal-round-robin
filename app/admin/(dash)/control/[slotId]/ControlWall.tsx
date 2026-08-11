@@ -163,7 +163,7 @@ export default function ControlWall({
                     </div>
                   )}
                 </div>
-                <div className="px-3 py-2 text-sm">
+                <div className="px-3 py-2 text-center text-sm">
                   {label?.names ? (
                     <span className="font-medium">{label.names}</span>
                   ) : (

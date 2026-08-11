@@ -383,15 +383,25 @@ export default function RoomStation({
 
         {isRecording && (
           <div className="mt-4">
-            <div className="flex justify-between text-sm text-stone-400">
-              <span>Conversation</span>
-              <span className="tabular-nums">{mmss(remaining)} left</span>
-            </div>
-            <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-stone-800">
+            <p className="text-sm text-stone-400">Conversation</p>
+            {/* The time remaining sits centered ON the bar — this is the one
+                readout the participants glance at, and a number floating
+                above-right of a 2px line was easy to miss from across the
+                table. */}
+            <div
+              role="progressbar"
+              aria-valuenow={Math.round(elapsed)}
+              aria-valuemin={0}
+              aria-valuemax={conversationSeconds}
+              className="relative mt-1.5 h-6 overflow-hidden rounded-full bg-stone-800"
+            >
               <div
                 className="h-full rounded-full bg-red-500 transition-all"
                 style={{ width: `${Math.min(100, (elapsed / conversationSeconds) * 100)}%` }}
               />
+              <span className="absolute inset-0 flex items-center justify-center text-sm font-semibold tabular-nums text-white">
+                {mmss(remaining)} left
+              </span>
             </div>
           </div>
         )}

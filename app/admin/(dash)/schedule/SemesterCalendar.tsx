@@ -192,7 +192,11 @@ export default function SemesterCalendar({
                     >
                       {day}
                       {hasSessions && !isBlackout && (
-                        <span className="absolute bottom-0.5 text-[8px] leading-none">
+                        // inset-x-0 + text-center, because an absolutely
+                        // positioned child leaves the flex flow and the
+                        // parent's justify-center no longer applies to it —
+                        // without this the dots sit right of the day number.
+                        <span className="absolute inset-x-0 bottom-0.5 text-center text-[8px] leading-none">
                           {"•".repeat(Math.min(3, counts!.total))}
                         </span>
                       )}
