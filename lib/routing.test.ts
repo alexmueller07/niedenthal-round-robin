@@ -51,6 +51,9 @@ function recording(overrides: Partial<Recording> = {}): Recording {
     status: "stored",
     startedAt: "2026-09-08T18:00:00Z",
     endedAt: "2026-09-08T18:10:00Z",
+    // Null is the honest default here: this fixture models a browser-recorder
+    // take, and MediaRecorder cannot measure any of these.
+    integrity: null,
     ...overrides,
   };
 }

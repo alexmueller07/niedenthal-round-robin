@@ -17,6 +17,7 @@ import type {
   Ra,
   RaLink,
   Recording,
+  RecordingIntegrity,
   RecordingStatus,
   RoomDevice,
   Rotation,
@@ -830,6 +831,23 @@ function toRecording(r: Row): Recording {
     status: asString(r.status) as RecordingStatus,
     startedAt: asTimestamp(r.started_at),
     endedAt: r.ended_at == null ? null : asTimestamp(r.ended_at),
+    // Present only for takes the native recorder closed. A row with no capture
+    // metrics at all reports null rather than a shape full of nulls, so callers
+    // can tell "not measured" from "measured as zero".
+    integrity:
+      r.capture_fps == null && r.sha256 == null && r.profile_hash == null
+        ? null
+        : {
+            captureFps: r.capture_fps == null ? null : Number(r.capture_fps),
+            framesDropped: r.frames_dropped == null ? null : Number(r.frames_dropped),
+            framesDuplicated:
+              r.frames_duplicated == null ? null : Number(r.frames_duplicated),
+            cfr: r.cfr == null ? null : Boolean(r.cfr),
+            sha256: r.sha256 == null ? null : asString(r.sha256),
+            profileHash: r.profile_hash == null ? null : asString(r.profile_hash),
+            recorderVersion:
+              r.recorder_version == null ? null : asString(r.recorder_version),
+          },
   };
 }
 
@@ -1020,12 +1038,28 @@ export async function addRecordingBytes(id: string, bytes: number): Promise<void
 export async function closeRecording(
   id: string,
   status: RecordingStatus,
-  durationMs: number | null
+  durationMs: number | null,
+  /**
+   * Capture integrity from the native recorder. Omitted by the browser
+   * recorder, which cannot measure any of it — COALESCE keeps whatever is
+   * already stored rather than blanking it, so a retried close never erases
+   * numbers an earlier attempt already recorded.
+   */
+  integrity?: Partial<RecordingIntegrity> | null
 ): Promise<void> {
   const sql = getSql();
   await sql`
     UPDATE recordings
-    SET status = ${status}, duration_ms = ${durationMs}, ended_at = now()
+    SET status = ${status},
+        duration_ms = ${durationMs},
+        ended_at = now(),
+        capture_fps = COALESCE(${integrity?.captureFps ?? null}, capture_fps),
+        frames_dropped = COALESCE(${integrity?.framesDropped ?? null}, frames_dropped),
+        frames_duplicated = COALESCE(${integrity?.framesDuplicated ?? null}, frames_duplicated),
+        cfr = COALESCE(${integrity?.cfr ?? null}, cfr),
+        sha256 = COALESCE(${integrity?.sha256 ?? null}, sha256),
+        profile_hash = COALESCE(${integrity?.profileHash ?? null}, profile_hash),
+        recorder_version = COALESCE(${integrity?.recorderVersion ?? null}, recorder_version)
     WHERE id = ${id};`;
 }
 

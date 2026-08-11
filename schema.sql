@@ -296,3 +296,27 @@ ALTER TABLE slots DROP CONSTRAINT IF EXISTS slots_room_count_range;
 ALTER TABLE slots ADD CONSTRAINT slots_room_count_range CHECK (room_count BETWEEN 1 AND 3) NOT VALID;
 ALTER TABLE weekly_shifts DROP CONSTRAINT IF EXISTS weekly_shifts_room_count_range;
 ALTER TABLE weekly_shifts ADD CONSTRAINT weekly_shifts_room_count_range CHECK (room_count BETWEEN 1 AND 3) NOT VALID;
+
+-- ===========================================================================
+-- Native recorder integration (Lab Recorder desktop app, 2026-08-11)
+-- ===========================================================================
+
+-- Lab Recorder writes a constant-frame-rate MP4 straight to the Research Drive
+-- and registers only the row, so these columns carry what the Control Center
+-- needs to judge a take without opening it. All nullable: rows written by the
+-- browser recorder simply leave them empty.
+--
+-- frames_dropped is the one that matters. Constant frame rate is achieved by
+-- duplicating or discarding frames, so a take can be perfectly well-formed and
+-- still be missing material — a fact about the session that a researcher has to
+-- be able to see afterwards.
+ALTER TABLE recordings ADD COLUMN IF NOT EXISTS capture_fps INTEGER;
+ALTER TABLE recordings ADD COLUMN IF NOT EXISTS frames_dropped INTEGER;
+ALTER TABLE recordings ADD COLUMN IF NOT EXISTS frames_duplicated INTEGER;
+ALTER TABLE recordings ADD COLUMN IF NOT EXISTS cfr BOOLEAN;
+ALTER TABLE recordings ADD COLUMN IF NOT EXISTS sha256 TEXT;
+-- Identifies the encoding settings, not the machine: two rows with the same
+-- hash were produced the same way, which is how "did all three rooms record
+-- identically?" gets answered without trusting anyone's memory.
+ALTER TABLE recordings ADD COLUMN IF NOT EXISTS profile_hash TEXT;
+ALTER TABLE recordings ADD COLUMN IF NOT EXISTS recorder_version TEXT;

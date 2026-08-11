@@ -63,6 +63,14 @@ export default async function ControlSessionPage({
         | "uploading"
         | "stored"
         | "failed",
+      // Only the native recorder reports these; browser takes carry null.
+      integrity: existing?.integrity
+        ? {
+            cfr: existing.integrity.cfr,
+            framesDropped: existing.integrity.framesDropped,
+            captureFps: existing.integrity.captureFps,
+          }
+        : null,
     };
   });
 

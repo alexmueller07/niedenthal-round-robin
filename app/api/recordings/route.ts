@@ -4,7 +4,7 @@
 // at capture time. That stamp is the routing key: it is what later answers
 // "which clips belong to this participant?" without re-deriving anything.
 
-import { requireAdminApi } from "@/lib/control-guard";
+import { checkPpsSecret, requireAdminApi } from "@/lib/control-guard";
 import {
   getRecordingForRoom,
   getSlot,
@@ -15,8 +15,12 @@ import { dyadInRoom, storageKeyFor } from "@/lib/routing";
 import { isStorageConfigured, removeFile } from "@/lib/storage";
 
 export async function POST(request: Request) {
-  const unauthorized = await requireAdminApi();
-  if (unauthorized) return unauthorized;
+  // The Lab Recorder desktop app has no cookie to present, so it authenticates
+  // with the same shared secret the PPS app already uses.
+  if (!checkPpsSecret(request)) {
+    const unauthorized = await requireAdminApi();
+    if (unauthorized) return unauthorized;
+  }
 
   if (!isStorageConfigured()) {
     return Response.json(
@@ -30,6 +34,13 @@ export async function POST(request: Request) {
     roomIndex?: number;
     round?: number;
     mimeType?: string;
+    /**
+     * Container the caller will actually write. The browser recorder produces
+     * webm; the native recorder produces mp4, which is what the PPS dyad task
+     * accepts (it rejects webm outright). Defaults to webm so existing callers
+     * are unaffected.
+     */
+    extension?: string;
     force?: boolean;
   };
   try {
@@ -78,12 +89,19 @@ export async function POST(request: Request) {
 
   const dyad = dyadInRoom(slot.rotation, round, roomIndex);
   const mimeType = String(body.mimeType ?? "video/webm").slice(0, 60);
+
+  // The extension lands in a filename, so it is constrained rather than
+  // trusted — the key is otherwise entirely server-generated.
+  const requested = String(body.extension ?? "webm").toLowerCase();
+  const extension = /^[a-z0-9]{2,5}$/.test(requested) ? requested : "webm";
+
   const storageKey = storageKeyFor({
     slotId,
     round,
     roomIndex,
     participantA: dyad?.a ?? null,
     participantB: dyad?.b ?? null,
+    extension,
   });
 
   // Re-opening the same (session, round, room) means a retry — clear the old
@@ -108,6 +126,10 @@ export async function POST(request: Request) {
     participantA: recording.participantA,
     participantB: recording.participantB,
     unassigned: dyad === null,
+    // The native recorder writes the file itself, straight to the Research
+    // Drive share this server reads from, so it needs to be told where. The
+    // browser recorder ignores this and uploads chunks as before.
+    storageKey: recording.storageKey,
   });
 }
 
