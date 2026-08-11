@@ -225,7 +225,12 @@ export default async function TodayPage() {
               const live = liveBySlot.get(slot.id) ?? { invited: 0, confirmed: 0 };
               const total = live.invited + live.confirmed;
               const target = settings.groupMin;
-              const pct = Math.min(100, Math.round((live.confirmed / target) * 100));
+              // groupMin is admin-editable; zero would make this NaN and
+              // render a broken bar, so an unset target reads as 0% filled.
+              const pct =
+                target > 0
+                  ? Math.min(100, Math.round((live.confirmed / target) * 100))
+                  : 0;
               const raCount = raCountBySlot.get(slot.id) ?? 0;
               const staffed = raCount >= settings.minRas;
               const hasHead = headRaBySlot.has(slot.id);
@@ -270,7 +275,9 @@ export default async function TodayPage() {
                         {live.confirmed} confirmed · {live.invited} invited
                       </span>
                       <span>
-                        target {settings.groupMin}–{settings.groupMax}
+                        {target > 0
+                          ? `target ${settings.groupMin}–${settings.groupMax}`
+                          : "no target set"}
                       </span>
                     </div>
                     <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-stone-100">

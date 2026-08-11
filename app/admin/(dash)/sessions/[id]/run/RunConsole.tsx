@@ -159,11 +159,21 @@ export default function RunConsole({
             <button
               type="button"
               disabled={pending}
-              onClick={() =>
+              onClick={() => {
+                // Rewriting the rotation reshuffles every round's rooms and
+                // breaks the link to anything already recorded — make it a
+                // deliberate act, not a stray click next to "Next".
+                if (
+                  !window.confirm(
+                    "Regenerate the rotation? Room assignments for every round will change."
+                  )
+                ) {
+                  return;
+                }
                 startTransition(async () => {
                   await generateRotationAction(slotId);
-                })
-              }
+                });
+              }}
               className="text-xs font-semibold text-stone-400 hover:text-badger"
             >
               Regenerate

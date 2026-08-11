@@ -17,6 +17,7 @@ type Phase = "idle" | "armed" | "recording" | "uploading" | "done" | "error";
 interface RoomStationProps {
   slotId: string;
   roomIndex: number;
+  /** Round at page load — re-read from the server at arm time, see below. */
   round: number;
   /** Names of the pair the rotation puts in this room this round. */
   pair: { a: string; b: string } | null;
@@ -63,6 +64,10 @@ export default function RoomStation({
   const [countdown, setCountdown] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [published, setPublished] = useState(false);
+  // The round actually being recorded. The prop is only the round at page
+  // load; the console can advance the session while this tab sits open, and
+  // stamping a stale round would route the clip to the wrong participants.
+  const [liveRound, setLiveRound] = useState(round);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -77,6 +82,8 @@ export default function RoomStation({
    */
   const uploadChainRef = useRef<Promise<void>>(Promise.resolve());
   const uploadFailedRef = useRef(false);
+  /** Sequence number each chunk carries so the server can refuse disorder. */
+  const chunkIndexRef = useRef(0);
 
   const conversationSeconds = Math.max(60, conversationMinutes * 60);
 
@@ -141,11 +148,57 @@ export default function RoomStation({
     const mimeType = pickMimeType();
 
     try {
-      const response = await fetch("/api/recordings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slotId, roomIndex, round, mimeType }),
-      });
+      // Re-read the current round right before opening: the console may have
+      // advanced the session while this tab sat open, and the round stamped
+      // here is what routes the clip to its participants.
+      let freshRound = round;
+      try {
+        const res = await fetch(`/api/control/round?slotId=${encodeURIComponent(slotId)}`);
+        if (res.ok) {
+          const data = (await res.json()) as { currentRound: number };
+          if (Number.isInteger(data.currentRound) && data.currentRound >= 1) {
+            freshRound = data.currentRound;
+          }
+        }
+      } catch {
+        // Offline blip — fall back to the round the page rendered with.
+      }
+      setLiveRound(freshRound);
+
+      const open = (force: boolean) =>
+        fetch("/api/recordings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            slotId,
+            roomIndex,
+            round: freshRound,
+            mimeType,
+            ...(force ? { force: true } : {}),
+          }),
+        });
+
+      let response = await open(false);
+      if (response.status === 409) {
+        // The server refuses to replace a take it believes is mid-flight —
+        // usually a crashed tab that never closed its recording. Only a
+        // person gets to decide it's dead.
+        const conflict = (await response
+          .clone()
+          .json()
+          .catch(() => null)) as { conflict?: string } | null;
+        if (conflict?.conflict === "in_progress") {
+          const proceed = window.confirm(
+            "A recording for this room and round is already marked in progress " +
+              "(possibly from a crashed tab). Replace it and start fresh?"
+          );
+          if (!proceed) {
+            setPhase("idle");
+            return;
+          }
+          response = await open(true);
+        }
+      }
       if (!response.ok) {
         const text = await response.text();
         setError(text || "Couldn't open a recording.");
@@ -159,17 +212,25 @@ export default function RoomStation({
       recorderRef.current = recorder;
       uploadChainRef.current = Promise.resolve();
       uploadFailedRef.current = false;
+      chunkIndexRef.current = 0;
 
       recorder.ondataavailable = (event) => {
         if (event.data.size === 0 || !recordingIdRef.current) return;
         const id = recordingIdRef.current;
         const blob = event.data;
+        // Claim the sequence number at cut time, not upload time — the chain
+        // preserves order, and the index lets the server prove it held.
+        const chunkIndex = chunkIndexRef.current;
+        chunkIndexRef.current += 1;
         // Queue behind whatever is already uploading so chunks append in order.
         uploadChainRef.current = uploadChainRef.current.then(async () => {
           try {
             const res = await fetch(`/api/recordings/${id}/chunk`, {
               method: "POST",
-              headers: { "Content-Type": "application/octet-stream" },
+              headers: {
+                "Content-Type": "application/octet-stream",
+                "X-Chunk-Index": String(chunkIndex),
+              },
               body: blob,
             });
             if (!res.ok) throw new Error(String(res.status));
@@ -269,7 +330,7 @@ export default function RoomStation({
           <div>
             <h1 className="text-3xl font-black tracking-tight">Room {roomIndex}</h1>
             <p className="text-sm text-stone-400">
-              {sessionLabel} · round {round}
+              {sessionLabel} · round {liveRound}
             </p>
           </div>
           <span

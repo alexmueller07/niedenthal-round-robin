@@ -165,6 +165,12 @@ export interface Recording {
   mimeType: string;
   bytes: number;
   durationMs: number | null;
+  /**
+   * The index the next chunk upload must carry. Chunks append to the file, so
+   * a duplicated or replayed upload landing out of order corrupts the video —
+   * the server refuses any index it isn't expecting.
+   */
+  nextChunkIndex: number;
   status: RecordingStatus;
   startedAt: string;
   endedAt: string | null;

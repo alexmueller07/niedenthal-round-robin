@@ -24,11 +24,32 @@ export async function POST(
   if (recording.status === "stored") {
     return new Response("Recording is already closed", { status: 409 });
   }
+  // A failed take's file is already suspect; appending more only muddies what
+  // little of it might be salvageable.
+  if (recording.status === "failed") {
+    return new Response("Recording is marked failed", { status: 409 });
+  }
 
   const body = await request.arrayBuffer();
   if (body.byteLength === 0) return new Response(null, { status: 204 });
   if (body.byteLength > MAX_CHUNK_BYTES) {
     return new Response("Chunk too large", { status: 413 });
+  }
+
+  // Chunks append blindly to the file, so a duplicated, replayed, or
+  // out-of-order request would corrupt the video without anyone noticing.
+  // Each upload carries its index; anything but the expected next one is
+  // refused, and the client treats the 409 as a dirty take.
+  const indexHeader = request.headers.get("x-chunk-index");
+  const chunkIndex = indexHeader === null ? NaN : Number(indexHeader);
+  if (!Number.isInteger(chunkIndex) || chunkIndex < 0) {
+    return new Response("X-Chunk-Index is required", { status: 400 });
+  }
+  if (chunkIndex !== recording.nextChunkIndex) {
+    return new Response(
+      `Out-of-order chunk: expected ${recording.nextChunkIndex}, got ${chunkIndex}`,
+      { status: 409 }
+    );
   }
 
   try {

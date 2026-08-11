@@ -19,6 +19,14 @@ export type { Dyad, RoundPlan, Rotation } from "./types";
 
 const BYE = "__bye__";
 
+/**
+ * The lab has three conversation rooms, and the room-assignment search in
+ * assignRoomsAcrossRounds is factorial in rooms (rooms!^rounds candidates) —
+ * a bad roomCount would hang the server rather than fail. Anything above 3 is
+ * a data error, so refuse loudly.
+ */
+const MAX_ROOMS = 3;
+
 function seededShuffle<T>(items: readonly T[], rand: () => number): T[] {
   const out = [...items];
   for (let i = out.length - 1; i > 0; i--) {
@@ -140,6 +148,12 @@ export function generateRotation(
   participantIds: readonly string[],
   { rooms, rounds, seed }: RotationOptions
 ): Rotation {
+  if (rooms > MAX_ROOMS) {
+    throw new Error(
+      `generateRotation supports at most ${MAX_ROOMS} rooms (got ${rooms}) — ` +
+        "the room-assignment search is factorial in rooms."
+    );
+  }
   const rand = mulberry32(seed);
   const shuffled = seededShuffle(participantIds, rand);
 

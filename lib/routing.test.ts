@@ -47,6 +47,7 @@ function recording(overrides: Partial<Recording> = {}): Recording {
     mimeType: "video/webm",
     bytes: 100,
     durationMs: 600_000,
+    nextChunkIndex: 1,
     status: "stored",
     startedAt: "2026-09-08T18:00:00Z",
     endedAt: "2026-09-08T18:10:00Z",

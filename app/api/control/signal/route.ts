@@ -2,11 +2,21 @@
 // Offers, answers, and ICE candidates all ride through here as opaque payloads
 // — the server never inspects them, it only delivers.
 
-import { checkSlotAccess, denied } from "@/lib/control-guard";
+import { canActAsDevice, checkSlotAccess, denied } from "@/lib/control-guard";
 import { pushSignal, sweepOldSignals } from "@/lib/db";
 
 /** Signaling payloads are small; anything larger is a bug or an abuse. */
 const MAX_PAYLOAD_BYTES = 64 * 1024;
+
+/**
+ * Every SWEEP_EVERY-th post pays for a sweep of old rows. A counter rather
+ * than a clock: the previous wall-clock modulo only fired when a post landed
+ * inside one particular second out of every twenty, which in practice was
+ * almost never. Per-instance state is fine — any instance sweeping keeps the
+ * table bounded.
+ */
+const SWEEP_EVERY = 50;
+let postsSinceSweep = 0;
 
 export async function POST(request: Request) {
   let body: {
@@ -31,6 +41,13 @@ export async function POST(request: Request) {
   const access = await checkSlotAccess(slotId);
   if (!access.ok) return denied(access);
 
+  // fromDevice is the identity the receiver trusts — a camera answers offers
+  // to msg.from with its live stream. So the sender must own the device it
+  // signs with, not merely share the slot.
+  if (!(await canActAsDevice(access, slotId, fromDevice))) {
+    return new Response("Forbidden", { status: 403 });
+  }
+
   if (JSON.stringify(body.payload ?? null).length > MAX_PAYLOAD_BYTES) {
     return new Response("Payload too large", { status: 413 });
   }
@@ -38,7 +55,11 @@ export async function POST(request: Request) {
   await pushSignal({ slotId, fromDevice, toDevice, payload: body.payload ?? null });
 
   // Signaling traffic is disposable; keep the table from growing forever.
-  if (Math.floor(Number(new Date()) / 1000) % 20 === 0) await sweepOldSignals();
+  postsSinceSweep += 1;
+  if (postsSinceSweep >= SWEEP_EVERY) {
+    postsSinceSweep = 0;
+    await sweepOldSignals();
+  }
 
   return new Response(null, { status: 204 });
 }
