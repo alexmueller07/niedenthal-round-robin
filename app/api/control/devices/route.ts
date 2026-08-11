@@ -2,8 +2,9 @@
 // participant station, or the control center) and heartbeats to stay listed.
 // Peers discover each other by listing devices, then talk over WebRTC.
 
-import { checkSlotAccess, denied } from "@/lib/control-guard";
+import { canActAsDevice, checkSlotAccess, denied } from "@/lib/control-guard";
 import {
+  getDevice,
   heartbeatDevice,
   listLiveDevices,
   registerDevice,
@@ -34,10 +35,16 @@ export async function POST(request: Request) {
   const access = await checkSlotAccess(slotId);
   if (!access.ok) return denied(access);
 
-  // Heartbeat for an already-registered device.
+  // Heartbeat for an already-registered device. Keeping someone else's device
+  // listed as live would let a spoofer hold a seat in the registry, so the
+  // heartbeat is owner-only too.
   if (body.deviceId) {
-    await heartbeatDevice(String(body.deviceId));
-    return Response.json({ deviceId: body.deviceId });
+    const deviceId = String(body.deviceId);
+    if (!(await canActAsDevice(access, slotId, deviceId))) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    await heartbeatDevice(deviceId);
+    return Response.json({ deviceId });
   }
 
   const kind = String(body.kind ?? "") as DeviceKind;
@@ -73,9 +80,16 @@ export async function GET(request: Request) {
   const access = await checkSlotAccess(slotId);
   if (!access.ok) return denied(access);
 
+  // The full registry includes every camera's device id, which is exactly
+  // what a spoofer needs to intercept its signaling. Only the control wall
+  // (admin) discovers peers; a participant sees just their own devices.
   const devices = await listLiveDevices(slotId);
+  const visible =
+    access.role === "admin"
+      ? devices
+      : devices.filter((d) => d.participantId === access.participantId);
   return Response.json({
-    devices: devices.map((d) => ({
+    devices: visible.map((d) => ({
       id: d.id,
       kind: d.kind,
       roomIndex: d.roomIndex,
@@ -93,6 +107,17 @@ export async function DELETE(request: Request) {
 
   const access = await checkSlotAccess(slotId);
   if (!access.ok) return denied(access);
+
+  // Deregistering someone else's camera would silently kill its feed, so
+  // deletion is owner-only (admins may remove any of the slot's devices).
+  const device = await getDevice(deviceId);
+  if (!device || device.slotId !== slotId) {
+    // Already gone — a clean close() races the stale sweep all the time.
+    return new Response(null, { status: 204 });
+  }
+  if (access.role !== "admin" && device.participantId !== access.participantId) {
+    return new Response("Forbidden", { status: 403 });
+  }
 
   await removeDevice(deviceId);
   return new Response(null, { status: 204 });

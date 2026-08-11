@@ -14,6 +14,7 @@ import {
 import {
   addBlackoutDate,
   clearShiftHead,
+  countRecordingsForSlot,
   createAssignment,
   createRa,
   createSlot,
@@ -780,6 +781,18 @@ export async function generateRotationAction(
     getSettings(),
   ]);
   if (!slot) return { error: "Session not found." };
+
+  // The rotation is stamped onto every recording at capture time — that stamp
+  // is what routes clips to participants. Rewriting the rotation once the
+  // session has moved past round 1, or once anything has been recorded, would
+  // orphan those stamps, so refuse outright rather than quietly corrupt.
+  const recorded = await countRecordingsForSlot(slotId);
+  if (slot.currentRound > 1 || recorded > 0) {
+    throw new Error(
+      "This session has advanced past round 1 or already has recordings — " +
+        "regenerating the rotation would orphan them."
+    );
+  }
 
   const present = assignments
     .filter((a) => a.status === "confirmed" || a.status === "attended")

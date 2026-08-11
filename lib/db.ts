@@ -28,6 +28,7 @@ import type {
   WeeklyShift,
 } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
+import { todayInMadison } from "./format";
 
 function getSql() {
   const url = process.env.DATABASE_URL;
@@ -182,6 +183,17 @@ export async function getParticipantById(id: string): Promise<Participant | null
 export async function listParticipants(): Promise<Participant[]> {
   const sql = getSql();
   const rows = await sql`SELECT * FROM participants ORDER BY created_at;`;
+  return rows.map(toParticipant);
+}
+
+/** Batch lookup, so callers annotating a list don't query once per row. */
+export async function listParticipantsByIds(
+  ids: readonly string[]
+): Promise<Participant[]> {
+  if (ids.length === 0) return [];
+  const sql = getSql();
+  const rows = await sql`
+    SELECT * FROM participants WHERE id = ANY(${ids as string[]});`;
   return rows.map(toParticipant);
 }
 
@@ -814,6 +826,7 @@ function toRecording(r: Row): Recording {
     mimeType: asString(r.mime_type ?? "video/webm"),
     bytes: Number(r.bytes ?? 0),
     durationMs: r.duration_ms == null ? null : Number(r.duration_ms),
+    nextChunkIndex: Number(r.next_chunk_index ?? 0),
     status: asString(r.status) as RecordingStatus,
     startedAt: asTimestamp(r.started_at),
     endedAt: r.ended_at == null ? null : asTimestamp(r.ended_at),
@@ -835,6 +848,21 @@ export async function registerDevice(input: {
             ${input.participantId ?? null}, ${input.label ?? ""})
     RETURNING *;`;
   return toRoomDevice(rows[0]);
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * One device row by id — the ownership lookup behind every signaling and
+ * heartbeat request. Device ids arrive off query strings and request bodies,
+ * so a malformed one is "no such device", not a database error.
+ */
+export async function getDevice(deviceId: string): Promise<RoomDevice | null> {
+  if (!UUID_RE.test(deviceId)) return null;
+  const sql = getSql();
+  const rows = await sql`SELECT * FROM room_devices WHERE id = ${deviceId};`;
+  return rows.length > 0 ? toRoomDevice(rows[0]) : null;
 }
 
 export async function heartbeatDevice(deviceId: string): Promise<void> {
@@ -945,10 +973,32 @@ export async function openRecording(input: {
           status = 'recording',
           bytes = 0,
           duration_ms = NULL,
+          next_chunk_index = 0,
           started_at = now(),
           ended_at = NULL
     RETURNING *;`;
   return toRecording(rows[0]);
+}
+
+/** The recording row for one (session, round, room), whatever its status. */
+export async function getRecordingForRoom(
+  slotId: string,
+  round: number,
+  roomIndex: number
+): Promise<Recording | null> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT * FROM recordings
+    WHERE slot_id = ${slotId} AND round = ${round} AND room_index = ${roomIndex};`;
+  return rows.length > 0 ? toRecording(rows[0]) : null;
+}
+
+/** Cheap existence check — guards actions that would orphan recordings. */
+export async function countRecordingsForSlot(slotId: string): Promise<number> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT COUNT(*)::int AS n FROM recordings WHERE slot_id = ${slotId};`;
+  return Number(rows[0].n);
 }
 
 export async function getRecording(id: string): Promise<Recording | null> {
@@ -957,10 +1007,13 @@ export async function getRecording(id: string): Promise<Recording | null> {
   return rows.length > 0 ? toRecording(rows[0]) : null;
 }
 
+/** Records one landed chunk: adds its bytes and advances the expected index. */
 export async function addRecordingBytes(id: string, bytes: number): Promise<void> {
   const sql = getSql();
   await sql`
-    UPDATE recordings SET bytes = bytes + ${bytes}, status = 'uploading'
+    UPDATE recordings
+    SET bytes = bytes + ${bytes}, status = 'uploading',
+        next_chunk_index = next_chunk_index + 1
     WHERE id = ${id} AND status IN ('recording', 'uploading');`;
 }
 
@@ -1014,7 +1067,14 @@ export async function setPpsProgress(
     WHERE id = ${assignmentId};`;
 }
 
-/** Resolves a PPS-app report (keyed by participant email) to a live assignment. */
+/**
+ * Resolves a PPS-app report (keyed by participant email) to a live assignment.
+ *
+ * Prefers an assignment whose session is today (Madison time): a participant
+ * holding both a session today and a follow-up booked later would otherwise
+ * resolve to whichever was assigned last, routing their progress to the wrong
+ * session. Newest assignment breaks the tie.
+ */
 export async function findLiveAssignmentByEmail(
   email: string
 ): Promise<{ assignmentId: string; slotId: string } | null> {
@@ -1022,9 +1082,11 @@ export async function findLiveAssignmentByEmail(
   const rows = await sql`
     SELECT a.id, a.slot_id FROM assignments a
     JOIN participants p ON p.id = a.participant_id
+    JOIN slots s ON s.id = a.slot_id
     WHERE p.email = ${email.trim().toLowerCase()}
       AND a.status IN ('invited', 'confirmed', 'attended')
-    ORDER BY a.assigned_at DESC LIMIT 1;`;
+    ORDER BY (s.date = ${todayInMadison()}::date) DESC, a.assigned_at DESC
+    LIMIT 1;`;
   return rows.length > 0
     ? { assignmentId: asString(rows[0].id), slotId: asString(rows[0].slot_id) }
     : null;

@@ -271,3 +271,28 @@ INSERT INTO settings (key, value) VALUES ('ra_links', '[
   {"id":"sona","label":"SONA","url":"https://uwmadison.sona-systems.com","note":"Granting credit and checking sign-ups."}
 ]')
 ON CONFLICT (key) DO NOTHING;
+
+-- ===========================================================================
+-- Control hardening (security + recording-integrity audit, 2026-08-10)
+-- ===========================================================================
+
+-- Chunk uploads carry an explicit sequence number so a duplicated, replayed,
+-- or out-of-order request can never append into the file; the row tracks the
+-- index it expects next.
+ALTER TABLE recordings ADD COLUMN IF NOT EXISTS next_chunk_index INTEGER NOT NULL DEFAULT 0;
+
+-- The signal sweep filters on created_at and the device sweep on last_seen;
+-- without these each sweep is a full-table scan.
+CREATE INDEX IF NOT EXISTS signals_created_idx ON signals (created_at);
+CREATE INDEX IF NOT EXISTS room_devices_last_seen_idx ON room_devices (last_seen);
+
+-- The lab has three conversation rooms, and the rotation's room-assignment
+-- search is factorial in rooms — lib/rotation.ts refuses more than 3, and the
+-- database refuses to store a count it could never rotate. DROP + ADD keeps
+-- this idempotent for the statement splitter in scripts/setup-db.mjs (plain
+-- ADD CONSTRAINT is not); NOT VALID skips re-checking existing rows so a
+-- re-run can never fail on historical data.
+ALTER TABLE slots DROP CONSTRAINT IF EXISTS slots_room_count_range;
+ALTER TABLE slots ADD CONSTRAINT slots_room_count_range CHECK (room_count BETWEEN 1 AND 3) NOT VALID;
+ALTER TABLE weekly_shifts DROP CONSTRAINT IF EXISTS weekly_shifts_room_count_range;
+ALTER TABLE weekly_shifts ADD CONSTRAINT weekly_shifts_room_count_range CHECK (room_count BETWEEN 1 AND 3) NOT VALID;

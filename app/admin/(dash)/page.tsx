@@ -57,8 +57,11 @@ export default async function TodayPage() {
 
   const proposal = propose(snapshot);
   const proposedInvites = proposal.slots.reduce((n, s) => n + s.invitees.length, 0);
+  // A Map, not slots.find() per assignment: with a full semester of slots
+  // this line was the dashboard's single hottest loop.
+  const slotDateById = new Map(slots.map((s) => [s.id, s.date]));
   const unconfirmed = assignments.filter(
-    (a) => a.status === "invited" && (slots.find((s) => s.id === a.slotId)?.date ?? "") >= today
+    (a) => a.status === "invited" && (slotDateById.get(a.slotId) ?? "") >= today
   ).length;
   const noAvailability = activeParticipants.filter(
     (p) => (availabilityCount.get(p.id) ?? 0) === 0
@@ -225,7 +228,12 @@ export default async function TodayPage() {
               const live = liveBySlot.get(slot.id) ?? { invited: 0, confirmed: 0 };
               const total = live.invited + live.confirmed;
               const target = settings.groupMin;
-              const pct = Math.min(100, Math.round((live.confirmed / target) * 100));
+              // groupMin is admin-editable; zero would make this NaN and
+              // render a broken bar, so an unset target reads as 0% filled.
+              const pct =
+                target > 0
+                  ? Math.min(100, Math.round((live.confirmed / target) * 100))
+                  : 0;
               const raCount = raCountBySlot.get(slot.id) ?? 0;
               const staffed = raCount >= settings.minRas;
               const hasHead = headRaBySlot.has(slot.id);
@@ -270,16 +278,35 @@ export default async function TodayPage() {
                         {live.confirmed} confirmed · {live.invited} invited
                       </span>
                       <span>
-                        target {settings.groupMin}–{settings.groupMax}
+                        {target > 0
+                          ? `target ${settings.groupMin}–${settings.groupMax}`
+                          : "no target set"}
                       </span>
                     </div>
-                    <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-stone-100">
+                    <div
+                      role="progressbar"
+                      aria-valuenow={live.confirmed}
+                      aria-valuemin={0}
+                      aria-valuemax={Math.max(target, live.confirmed)}
+                      className="relative mt-1.5 h-5 overflow-hidden rounded-full bg-stone-100"
+                    >
                       <div
                         className={`h-full rounded-full ${
                           live.confirmed >= target ? "bg-green-500" : "bg-badger"
                         }`}
                         style={{ width: `${pct}%` }}
                       />
+                      {/* The count lives centered ON the bar, not beside it,
+                          so the fill and the number can never disagree about
+                          where to look. */}
+                      <span
+                        className={`absolute inset-0 flex items-center justify-center text-[11px] font-semibold ${
+                          pct >= 55 ? "text-white" : "text-ink"
+                        }`}
+                      >
+                        {live.confirmed}
+                        {target > 0 ? ` of ${settings.groupMin}` : ""} confirmed
+                      </span>
                     </div>
                     {total > 0 && total < target && (
                       <p className="mt-1.5 text-xs text-amber-700">

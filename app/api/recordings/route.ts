@@ -5,7 +5,12 @@
 // "which clips belong to this participant?" without re-deriving anything.
 
 import { requireAdminApi } from "@/lib/control-guard";
-import { getSlot, listRecordingsForSlot, openRecording } from "@/lib/db";
+import {
+  getRecordingForRoom,
+  getSlot,
+  listRecordingsForSlot,
+  openRecording,
+} from "@/lib/db";
 import { dyadInRoom, storageKeyFor } from "@/lib/routing";
 import { isStorageConfigured, removeFile } from "@/lib/storage";
 
@@ -20,7 +25,13 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: { slotId?: string; roomIndex?: number; round?: number; mimeType?: string };
+  let body: {
+    slotId?: string;
+    roomIndex?: number;
+    round?: number;
+    mimeType?: string;
+    force?: boolean;
+  };
   try {
     body = await request.json();
   } catch {
@@ -46,6 +57,25 @@ export async function POST(request: Request) {
     );
   }
 
+  // A take can still be mid-flight for this (session, round, room) — another
+  // tab, or a kiosk that crashed and left the row open. Wiping its file out
+  // from under a live recorder corrupts data, so refuse unless a person has
+  // explicitly chosen to replace it (the kiosk confirms before forcing).
+  const existing = await getRecordingForRoom(slotId, round, roomIndex);
+  if (
+    existing &&
+    (existing.status === "recording" || existing.status === "uploading") &&
+    body.force !== true
+  ) {
+    return Response.json(
+      {
+        error: "A recording for this room and round is already in progress.",
+        conflict: "in_progress",
+      },
+      { status: 409 }
+    );
+  }
+
   const dyad = dyadInRoom(slot.rotation, round, roomIndex);
   const mimeType = String(body.mimeType ?? "video/webm").slice(0, 60);
   const storageKey = storageKeyFor({
@@ -57,7 +87,8 @@ export async function POST(request: Request) {
   });
 
   // Re-opening the same (session, round, room) means a retry — clear the old
-  // partial file so chunks don't append onto a previous take.
+  // partial file so chunks don't append onto a previous take. This runs only
+  // after the in-progress guard has decided the retry may proceed.
   await removeFile(storageKey);
 
   const recording = await openRecording({

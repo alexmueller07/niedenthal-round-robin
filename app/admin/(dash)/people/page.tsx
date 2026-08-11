@@ -31,8 +31,18 @@ export default async function PeoplePage() {
     }
   }
 
+  // Group once instead of filtering the whole assignments array per
+  // participant — the page render was O(participants × assignments).
+  const assignmentsByParticipant = new Map<string, typeof assignments>();
+  for (const a of assignments) {
+    if (!a.participantId) continue;
+    const list = assignmentsByParticipant.get(a.participantId);
+    if (list) list.push(a);
+    else assignmentsByParticipant.set(a.participantId, [a]);
+  }
+
   const rows = participants.map((p) => {
-    const mine = assignments.filter((a) => a.participantId === p.id);
+    const mine = assignmentsByParticipant.get(p.id) ?? [];
     const liveAssignment = mine.find((a) => {
       const slot = slotById.get(a.slotId);
       return isLive(a.status) && slot !== undefined && slot.date >= snapshot.today;

@@ -14,6 +14,7 @@ import { formatDate, formatTimeRange } from "@/lib/format";
 import { captureComplete, dyadInRoom, plannedRecordings } from "@/lib/routing";
 import { isStorageConfigured } from "@/lib/storage";
 import ControlWall from "./ControlWall";
+import ProgressBoard from "./ProgressBoard";
 
 export const dynamic = "force-dynamic";
 
@@ -68,15 +69,20 @@ export default async function ControlSessionPage({
   const rounds =
     totalRounds > 0 ? Array.from({ length: totalRounds }, (_, i) => i + 1) : [currentRound];
 
+  // The live board includes invited people deliberately: someone who is
+  // physically present but never clicked confirm should still be visible
+  // to the RA watching the wall.
   const roster = assignments
-    .filter((a) => a.status === "confirmed" || a.status === "attended")
+    .filter((a) => ["invited", "confirmed", "attended"].includes(a.status))
     .map((a) => ({
-      id: a.id,
+      assignmentId: a.id,
       name: name(a.participantId),
+      status: a.status,
       liveStatus: a.liveStatus,
       needsHelp: a.needsHelp,
       ppsStage: a.ppsStage,
       ppsPercent: a.ppsPercent,
+      ppsUpdatedAt: a.ppsUpdatedAt,
     }));
 
   const helpCount = roster.filter((r) => r.needsHelp).length;
@@ -149,42 +155,14 @@ export default async function ControlSessionPage({
         rounds={rounds}
       />
 
-      <section>
-        <h2 className="mb-1 text-lg font-bold">Participant progress</h2>
-        <p className="mb-3 text-sm text-ink-soft">
-          Updates as people move through the PPS app. RAs can also set status by hand on
-          the session console.
-        </p>
-        {roster.length === 0 ? (
-          <div className="card p-6 text-ink-soft">Nobody is checked in yet.</div>
-        ) : (
-          <ul className="card divide-y divide-line">
-            {roster.map((r) => (
-              <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">{r.name}</span>
-                  {r.needsHelp && (
-                    <span className="chip bg-badger-soft text-badger">needs help</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-ink-soft">
-                    {r.ppsStage ?? r.liveStatus.replace(/_/g, " ")}
-                  </span>
-                  {r.ppsPercent !== null && (
-                    <div className="h-2 w-28 overflow-hidden rounded-full bg-stone-100">
-                      <div
-                        className="h-full rounded-full bg-badger"
-                        style={{ width: `${r.ppsPercent}%` }}
-                      />
-                    </div>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <ProgressBoard
+        slotId={slot.id}
+        initial={{
+          serverNow: new Date().toISOString(),
+          currentRound,
+          roster,
+        }}
+      />
     </div>
   );
 }

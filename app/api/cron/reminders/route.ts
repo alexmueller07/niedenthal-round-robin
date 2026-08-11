@@ -4,17 +4,9 @@
 import { listAssignments, listParticipants, listSlots } from "@/lib/db";
 import { sendEmail } from "@/lib/email";
 import { isLive } from "@/lib/engine";
+import { todayInMadison } from "@/lib/format";
+import { addDays } from "@/lib/roster";
 import { reminderEmail } from "@/lib/templates";
-
-function tomorrowInMadison(): string {
-  const now = new Date();
-  const madison = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" }));
-  madison.setDate(madison.getDate() + 1);
-  const y = madison.getFullYear();
-  const m = String(madison.getMonth() + 1).padStart(2, "0");
-  const d = String(madison.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
@@ -23,7 +15,10 @@ export async function GET(request: Request) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  const tomorrow = tomorrowInMadison();
+  // The shared Madison-date helpers, not a locale-string round-trip — parsing
+  // toLocaleString output through the Date constructor depends on the server's
+  // locale data and can shift the day.
+  const tomorrow = addDays(todayInMadison(), 1);
   const [slots, assignments, participants] = await Promise.all([
     listSlots(),
     listAssignments(),

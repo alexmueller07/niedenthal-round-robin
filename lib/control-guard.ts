@@ -12,7 +12,7 @@
 
 import "server-only";
 import { getParticipantSession, isAdmin } from "./auth";
-import { listAssignmentsForSlot } from "./db";
+import { getDevice, listAssignmentsForSlot } from "./db";
 
 export type ControlAccess =
   | { ok: true; role: "admin"; participantId: null }
@@ -38,6 +38,25 @@ export async function checkSlotAccess(slotId: string): Promise<ControlAccess> {
   if (!mine) return { ok: false, status: 403 };
 
   return { ok: true, role: "participant", participantId };
+}
+
+/**
+ * May this caller act as `deviceId` — subscribe to its inbox, sign messages
+ * with it, heartbeat it, delete it? A device id is a capability: its inbox
+ * carries the WebRTC handshakes that expose live room audio/video (IRB
+ * 2020-1657), so slot access alone is not enough. The device must exist on
+ * this exact slot, and a participant may only act as a device they registered
+ * themselves; an admin running the session may act as any of its devices.
+ */
+export async function canActAsDevice(
+  access: Extract<ControlAccess, { ok: true }>,
+  slotId: string,
+  deviceId: string
+): Promise<boolean> {
+  const device = await getDevice(deviceId);
+  if (!device || device.slotId !== slotId) return false;
+  if (access.role === "admin") return true;
+  return device.participantId !== null && device.participantId === access.participantId;
 }
 
 /** Admin-only endpoints (recording control, device registry for rooms). */
