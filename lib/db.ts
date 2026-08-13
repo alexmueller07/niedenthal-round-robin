@@ -1045,7 +1045,13 @@ export async function closeRecording(
    * already stored rather than blanking it, so a retried close never erases
    * numbers an earlier attempt already recorded.
    */
-  integrity?: Partial<RecordingIntegrity> | null
+  integrity?: Partial<RecordingIntegrity> | null,
+  /**
+   * File size as reported by the native recorder, for deployments where this
+   * server cannot see the Research Drive share. Null leaves the column alone
+   * — the chunk-upload path maintains it itself.
+   */
+  bytes?: number | null
 ): Promise<void> {
   const sql = getSql();
   await sql`
@@ -1053,6 +1059,7 @@ export async function closeRecording(
     SET status = ${status},
         duration_ms = ${durationMs},
         ended_at = now(),
+        bytes = COALESCE(${bytes ?? null}, bytes),
         capture_fps = COALESCE(${integrity?.captureFps ?? null}, capture_fps),
         frames_dropped = COALESCE(${integrity?.framesDropped ?? null}, frames_dropped),
         frames_duplicated = COALESCE(${integrity?.framesDuplicated ?? null}, frames_duplicated),

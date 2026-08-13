@@ -30,10 +30,13 @@ export async function POST(
 
   let durationMs: number | null = null;
   let integrity: Partial<RecordingIntegrity> | null = null;
+  let reportedBytes: number | null = null;
   try {
     const body = await request.json();
     const raw = Number(body?.durationMs);
     if (Number.isFinite(raw) && raw > 0) durationMs = Math.floor(raw);
+    const claimed = num(body?.bytes);
+    if (claimed !== null && claimed > 0) reportedBytes = claimed;
 
     // Capture integrity, when the caller can measure it. The browser recorder
     // cannot, and omits all of it.
@@ -54,12 +57,32 @@ export async function POST(
     // Duration and metrics are a nicety; the file is what matters.
   }
 
-  // Unchanged and deliberate: "stored" means bytes are on disk, not that
-  // someone said so. The native recorder writes straight to the Research Drive
-  // share, so this sees the file without any upload having happened.
-  const bytes = await fileSize(recording.storageKey);
-  const status = bytes > 0 ? "stored" : "failed";
-  await closeRecording(id, status, durationMs, integrity);
+  // "stored" means bytes are on disk — but *whose* disk depends on the caller.
+  //
+  // The browser recorder uploads chunks to this server, so the file must be
+  // visible here, and that is checked directly: someone merely saying "done"
+  // does not make a capture complete.
+  //
+  // The native Lab Recorder writes straight to the Research Drive share and
+  // has already re-read its copy there and matched it against a SHA-256 —
+  // a strictly stronger check than stat-ing the file. This server may not be
+  // able to see the share at all (DoIT shared hosting cannot mount it), so a
+  // secret-authenticated close that carries the recorder's checksum is
+  // trusted on its own. The PPS station re-verifies the same checksum when it
+  // fetches the file, closing the loop end to end.
+  const observed = await fileSize(recording.storageKey);
+  const recorderVerified = checkPpsSecret(request) && Boolean(integrity?.sha256);
+  const status = observed > 0 || recorderVerified ? "stored" : "failed";
+  const bytes = observed > 0 ? observed : recorderVerified ? (reportedBytes ?? 0) : 0;
+  await closeRecording(
+    id,
+    status,
+    durationMs,
+    integrity,
+    // Only fill the size in when this server never saw the file; the chunk
+    // path has already been keeping the column up to date.
+    observed > 0 ? null : recorderVerified ? reportedBytes : null
+  );
 
   if (status === "failed") {
     console.error("[recordings] closed with no bytes on disk", {
