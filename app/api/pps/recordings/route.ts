@@ -71,6 +71,13 @@ export async function GET(request: Request) {
     slotRows.flatMap((s) => (s ? [[s.id, s.date] as const] : []))
   );
 
+  // The desktop app plays the file straight off the Research Drive share it
+  // has mounted — the same share RECORDING_DIR points at here — so it needs
+  // the storage key and the recorder's checksum to resolve and verify the
+  // copy. A participant's browser gets neither: it plays through the
+  // authenticated file route and has no business seeing server paths.
+  const trusted = checkPpsSecret(request);
+
   const clips = recordings.map((r) => {
     const partnerId = partnerIdFor(r);
     const partner = partnerId ? partnerById.get(partnerId) ?? null : null;
@@ -86,6 +93,9 @@ export async function GET(request: Request) {
         ? { id: partner.id, fullName: partner.fullName, email: partner.email }
         : null,
       url: `/api/recordings/${r.id}/file`,
+      ...(trusted
+        ? { storageKey: r.storageKey, sha256: r.integrity?.sha256 ?? null }
+        : {}),
     };
   });
 
