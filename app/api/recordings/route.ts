@@ -72,10 +72,28 @@ export async function POST(request: Request) {
   // tab, or a kiosk that crashed and left the row open. Wiping its file out
   // from under a live recorder corrupts data, so refuse unless a person has
   // explicitly chosen to replace it (the kiosk confirms before forcing).
+  //
+  // But "in progress" has to expire. A recorder that dies before it can close
+  // its row leaves one behind that is not live and never will be, and the old
+  // unbounded guard then refused every later take for that room *for good*.
+  // The takes still recorded — they simply came back unlinked, so the rating
+  // stations could never find them. One crashed take silently cost the room
+  // its whole pipeline. (2026-08-18: exactly this, found by rehearsing the
+  // walkthrough; a take that died at birth poisoned every take after it.)
+  //
+  // The window only has to exceed the longest take that could genuinely still
+  // be running. Conversations are ten minutes and the recorder's own safety
+  // net stops it a few minutes past the planned length, so an hour is far
+  // beyond any live take while still clearing long before the next session.
+  const ABANDONED_AFTER_MS = 60 * 60 * 1000;
   const existing = await getRecordingForRoom(slotId, round, roomIndex);
+  const startedMs = existing ? Date.parse(existing.startedAt) : NaN;
+  const plausiblyLive =
+    Number.isFinite(startedMs) && Date.now() - startedMs < ABANDONED_AFTER_MS;
   if (
     existing &&
     (existing.status === "recording" || existing.status === "uploading") &&
+    plausiblyLive &&
     body.force !== true
   ) {
     return Response.json(
