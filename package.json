@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "db:setup": "node scripts/setup-db.mjs"
+    "db:setup": "node scripts/setup-db.mjs",
+    "bundle:nickel": "node scripts/bundle-nickel.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

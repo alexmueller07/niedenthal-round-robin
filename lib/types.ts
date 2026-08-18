@@ -174,6 +174,28 @@ export interface Recording {
   status: RecordingStatus;
   startedAt: string;
   endedAt: string | null;
+  /**
+   * Capture integrity, reported by the Lab Recorder desktop app when it closes
+   * a take. Null for anything the browser recorder wrote — MediaRecorder cannot
+   * measure any of it.
+   *
+   * framesDropped is the one worth surfacing: constant frame rate is achieved
+   * by duplicating or discarding frames, so a take can be perfectly well-formed
+   * and still be missing material.
+   */
+  integrity: RecordingIntegrity | null;
+}
+
+export interface RecordingIntegrity {
+  captureFps: number | null;
+  framesDropped: number | null;
+  framesDuplicated: number | null;
+  /** Verified constant frame rate — declared and average rates agreed. */
+  cfr: boolean | null;
+  sha256: string | null;
+  /** Identifies the encoding settings, so takes from different rooms can be compared. */
+  profileHash: string | null;
+  recorderVersion: string | null;
 }
 
 /** One WebRTC signaling message, addressed device-to-device. */

@@ -16,6 +16,48 @@ interface CaptureCell {
   roomIndex: number;
   names: string;
   status: "missing" | "recording" | "uploading" | "stored" | "failed";
+  /**
+   * Capture integrity, present only for takes the Lab Recorder desktop app
+   * closed. The browser recorder cannot measure any of this, so its cells show
+   * status alone.
+   */
+  integrity: {
+    cfr: boolean | null;
+    framesDropped: number | null;
+    captureFps: number | null;
+  } | null;
+}
+
+/**
+ * A short verdict on a take's frame integrity.
+ *
+ * Dropped frames are the thing worth surfacing here. A recording can be
+ * perfectly well-formed, play back fine, and still be missing material —
+ * constant frame rate is maintained by discarding frames when the camera falls
+ * behind. Whoever is watching this board is the person who can still do
+ * something about it.
+ */
+function integrityNote(cell: CaptureCell): { text: string; className: string } | null {
+  if (!cell.integrity || cell.status !== "stored") return null;
+  const { cfr, framesDropped, captureFps } = cell.integrity;
+
+  if (framesDropped !== null && framesDropped > 0) {
+    const seconds = captureFps ? ` (${(framesDropped / captureFps).toFixed(1)}s)` : "";
+    return {
+      text: `${framesDropped} frames dropped${seconds}`,
+      className: "text-red-700",
+    };
+  }
+  if (cfr === false) {
+    return { text: "not constant frame rate", className: "text-red-700" };
+  }
+  if (cfr === true) {
+    return {
+      text: captureFps ? `CFR ${captureFps} ✓` : "CFR ✓",
+      className: "text-green-700",
+    };
+  }
+  return null;
 }
 
 interface ControlWallProps {
@@ -216,6 +258,14 @@ export default function ControlWall({
                             <span className="mt-1 block text-xs text-ink-soft">
                               {cell.names}
                             </span>
+                            {(() => {
+                              const note = integrityNote(cell);
+                              return note ? (
+                                <span className={`mt-0.5 block text-xs ${note.className}`}>
+                                  {note.text}
+                                </span>
+                              ) : null;
+                            })()}
                           </>
                         ) : (
                           <span className="text-stone-300">—</span>

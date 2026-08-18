@@ -148,6 +148,30 @@ export async function clearRaSession(): Promise<void> {
 // ------------------------------------------------------------- confirm tokens
 
 /** One-click token embedded in invitation emails. */
+// ------------------------------------------------- desktop app control login
+//
+// The Lab Suite's Control Center is this dashboard in a window, opened by an
+// RA who is already trusted with the machine and already holds the shared
+// secret. Making them type the lab password to see a board they opened from
+// inside the app is friction with no security value.
+//
+// So the app trades its secret for a single-use, one-minute token and
+// navigates to it. What this deliberately does NOT do is weaken the site:
+// a browser still meets the password, because the secret never leaves the
+// desktop app and the token dies in sixty seconds. Participant names,
+// emails and schedules stay behind auth (IRB 2020-1657).
+const CONTROL_LOGIN_TTL_MS = 1000 * 60;
+
+export function createControlLoginToken(): string {
+  const exp = String(Date.now() + CONTROL_LOGIN_TTL_MS);
+  return pack("control-login", exp);
+}
+
+export function verifyControlLoginToken(token: string): boolean {
+  const fields = unpack(token, 2);
+  return fields !== null && fields[0] === "control-login" && fresh(fields[1]);
+}
+
 export function createConfirmToken(assignmentId: string): string {
   const exp = String(Date.now() + CONFIRM_TTL_MS);
   return pack("confirm", assignmentId, exp);
