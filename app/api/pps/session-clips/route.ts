@@ -23,11 +23,27 @@ export async function GET(request: Request) {
   }
 
   const slotId = new URL(request.url).searchParams.get("slotId");
-  const today = todayInMadison();
 
-  const slots = (await listSlots()).filter((slot) =>
-    slotId ? slot.id === slotId : slot.date === today && slot.status !== "canceled"
-  );
+  // A window, not a single day. "Today" is the wrong unit for two reasons:
+  // a session that runs late crosses midnight and instantly disappears from
+  // its own stations, and a participant who comes back to rate a
+  // conversation from an earlier visit is the normal case in this study, not
+  // an edge one. Fourteen days covers both without turning this into a
+  // list of every recording the lab has ever made.
+  const WINDOW_DAYS = 14;
+  const earliest = new Date(Date.parse(`${todayInMadison()}T00:00:00Z`));
+  earliest.setUTCDate(earliest.getUTCDate() - WINDOW_DAYS);
+  const from = earliest.toISOString().slice(0, 10);
+
+  const slots = (await listSlots())
+    .filter((slot) =>
+      slotId
+        ? slot.id === slotId
+        : slot.date >= from && slot.status !== "canceled"
+    )
+    // Newest first, so the conversation that just finished is the first
+    // thing a station offers.
+    .sort((a, b) => b.date.localeCompare(a.date));
 
   const recordings = (
     await Promise.all(slots.map((slot) => listRecordingsForSlot(slot.id)))
