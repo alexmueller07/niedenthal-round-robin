@@ -16,7 +16,13 @@ import {
   replaceRaShiftPreferences,
 } from "@/lib/db";
 
-const NETID_RE = /^[a-z0-9]+$/;
+/**
+ * A NetID as the roster spells it: no domain, lower case. An RA who types
+ * their whole address into the box gets signed in rather than corrected.
+ */
+function normalizeNetid(raw: string): string {
+  return raw.trim().toLowerCase().split("@")[0] ?? "";
+}
 
 export interface RaActionResult {
   ok: boolean;
@@ -29,12 +35,11 @@ export interface RaActionResult {
  * claimed by anyone outside the lab.
  */
 export async function signInRa(formData: FormData): Promise<RaActionResult> {
-  const netid = String(formData.get("netid") ?? "").trim().toLowerCase();
-  if (!NETID_RE.test(netid)) {
-    return {
-      ok: false,
-      error: "Enter your UW NetID (letters and numbers, no @wisc.edu).",
-    };
+  const netid = normalizeNetid(String(formData.get("netid") ?? ""));
+  // The roster lookup below is the gate, and always was — the format check
+  // that used to be here only decided which error message an outsider saw.
+  if (!netid) {
+    return { ok: false, error: "Enter your UW NetID." };
   }
 
   const ra = await getRaByNetid(netid);

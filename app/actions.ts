@@ -22,8 +22,16 @@ import {
 import { sendEmail } from "@/lib/email";
 import { confirmationEmail } from "@/lib/templates";
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const NETID_RE = /^[a-z0-9]+$/;
+/**
+ * A NetID as the database spells it: no domain, lower case.
+ *
+ * Normalising, not validating. People type "amueller3@wisc.edu" into a field
+ * labelled NetID all the time, and the right answer to that is to understand
+ * it, not to refuse it.
+ */
+function normalizeNetid(raw: string): string {
+  return raw.trim().toLowerCase().split("@")[0] ?? "";
+}
 
 export interface ActionResult {
   ok: boolean;
@@ -33,19 +41,22 @@ export interface ActionResult {
 export async function signInParticipant(formData: FormData): Promise<ActionResult> {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const fullName = String(formData.get("fullName") ?? "").trim();
-  const netid = String(formData.get("netid") ?? "").trim().toLowerCase();
+  const netid = normalizeNetid(String(formData.get("netid") ?? ""));
 
+  // Empty is the only refusal left (2026-09-24). The format checks that used
+  // to sit here — name@host.tld for the email, letters-and-numbers for the
+  // NetID — turned real people away during the lab's test sessions, with the
+  // only feedback being "Please enter a valid email address" beside an address
+  // that was perfectly good. Nothing downstream needs the shape; what it needs
+  // is the same string twice, which normalising gives it.
   if (fullName.length === 0) {
     return { ok: false, error: "Please enter your full name." };
   }
-  if (!EMAIL_RE.test(email)) {
-    return { ok: false, error: "Please enter a valid email address." };
+  if (email.length === 0) {
+    return { ok: false, error: "Please enter your email address." };
   }
-  if (!NETID_RE.test(netid)) {
-    return {
-      ok: false,
-      error: "Please enter your UW NetID (letters and numbers, no @wisc.edu).",
-    };
+  if (netid.length === 0) {
+    return { ok: false, error: "Please enter your UW NetID." };
   }
 
   const participant = await upsertParticipant(email, fullName, netid);

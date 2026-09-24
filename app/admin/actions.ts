@@ -178,16 +178,16 @@ export async function completeSlotAction(slotId: string): Promise<void> {
 
 // ------------------------------------------------------------------------ RAs
 
-const NETID_RE = /^[a-z0-9]+$/;
+/** A NetID as the database spells it. Normalising, not validating. */
+function normalizeNetid(raw: string): string {
+  return raw.trim().toLowerCase().split("@")[0] ?? "";
+}
 
 export async function addRaAction(formData: FormData): Promise<{ error?: string }> {
   await requireAdmin();
   const name = String(formData.get("name") ?? "").trim();
-  const netid = String(formData.get("netid") ?? "").trim().toLowerCase();
+  const netid = normalizeNetid(String(formData.get("netid") ?? ""));
   if (!name) return { error: "Enter the RA's name." };
-  if (netid && !NETID_RE.test(netid)) {
-    return { error: "NetID should be letters and numbers only, without @wisc.edu." };
-  }
   await createRa(name, netid || null);
   refreshAdmin();
   return {};
@@ -203,14 +203,11 @@ export async function setRaIdentityAction(
   emailRaw: string
 ): Promise<{ error?: string }> {
   await requireAdmin();
-  const netid = netidRaw.trim().toLowerCase();
+  const netid = normalizeNetid(netidRaw);
   const email = emailRaw.trim().toLowerCase();
-  if (netid && !NETID_RE.test(netid)) {
-    return { error: "NetID should be letters and numbers only, without @wisc.edu." };
-  }
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return { error: "That doesn't look like a valid email address." };
-  }
+  // No format gate. The access list is the roster this writes to, not the
+  // shape of the string — an unknown NetID is refused at sign-in either way
+  // (see signInRa), which is where the real check belongs.
   await setRaIdentity(raId, netid || null, email || null);
   refreshAdmin();
   return {};
