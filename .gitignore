@@ -52,3 +52,14 @@ next-env.d.ts
 /recordings/
 *.webm
 
+
+# Python tooling (scripts/qualtrics)
+__pycache__/
+.pytest_cache/
+
+# Qualtrics exports and what availability_slots.py writes beside them hold
+# participants' names and emails — Research Drive only, never the repo.
+*-slots/
+
+# nickel deploy bundle (built by npm run bundle:nickel)
+/nickel-bundle/

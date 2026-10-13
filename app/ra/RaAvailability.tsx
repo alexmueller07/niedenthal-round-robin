@@ -7,9 +7,13 @@
 // the paint is the input and the shift list is the derived read-out. A shift
 // only counts when the painted time covers the whole thing — half a shift is
 // no use to Randy.
+//
+// The paint itself is what gets saved (Eddie, 2026-10-13). It used to be only
+// the covered shifts, so anything painted outside a posted shift disappeared
+// on reload — and the head RAs want the whole picture for planning new shifts.
 
 import { useMemo, useState, useTransition } from "react";
-import type { PaintBlock } from "@/lib/availability";
+import { totalHours, type PaintBlock } from "@/lib/availability";
 import { formatTimeRange } from "@/lib/format";
 import { shiftsCoveredBy, weekdayName } from "@/lib/schedule";
 import type { WeeklyShift } from "@/lib/types";
@@ -28,6 +32,8 @@ interface RaAvailabilityProps {
   shifts: WeeklyShift[];
   /** Shift ids this RA previously submitted. */
   selectedShiftIds: string[];
+  /** What this RA painted last time. Empty for anyone who saved before 2026-10-13. */
+  savedBlocks: PaintBlock[];
   submittedAt: string | null;
 }
 
@@ -48,12 +54,17 @@ function shiftsToBlocks(
 export default function RaAvailability({
   shifts,
   selectedShiftIds,
+  savedBlocks,
   submittedAt,
 }: RaAvailabilityProps) {
   const active = useMemo(() => shifts.filter((s) => s.active), [shifts]);
+  // Older submissions have no paint on record, only shifts — show those.
   const initialBlocks = useMemo(
-    () => shiftsToBlocks(active, new Set(selectedShiftIds)),
-    [active, selectedShiftIds]
+    () =>
+      savedBlocks.length > 0
+        ? savedBlocks
+        : shiftsToBlocks(active, new Set(selectedShiftIds)),
+    [savedBlocks, active, selectedShiftIds]
   );
 
   const [blocks, setBlocks] = useState<PaintBlock[]>(initialBlocks);
@@ -68,16 +79,20 @@ export default function RaAvailability({
     setError(null);
     setMessage(null);
     startTransition(async () => {
-      const result = await saveRaAvailability(covered.map((s) => s.id));
+      const result = await saveRaAvailability(blocks);
       if (!result.ok) {
         setError(result.error ?? "Something went wrong.");
         return;
       }
       setDirty(false);
+      const hours = totalHours(blocks);
       setMessage(
-        covered.length === 0
-          ? "Saved — you've told us you can't staff any shift right now."
-          : `Saved — you can staff ${covered.length} shift${covered.length === 1 ? "" : "s"}.`
+        hours === 0
+          ? "Saved — you've told us you aren't free at any time right now."
+          : `Saved — ${hours} hour${hours === 1 ? "" : "s"} a week` +
+              (covered.length > 0
+                ? `, covering ${covered.length} current shift${covered.length === 1 ? "" : "s"}.`
+                : ". None of it lines up with a current shift, but it's all on record.")
       );
     });
   };
@@ -96,13 +111,13 @@ export default function RaAvailability({
         {submittedAt && " You've submitted before — this shows what you sent."}
       </p>
 
-      {active.length === 0 ? (
-        <div className="card p-6 text-sm text-ink-soft">
-          The lab hasn&apos;t posted a weekly schedule yet. Check back once Randy sets
-          the shift times.
+      {active.length === 0 && (
+        <div className="card p-4 text-sm text-ink-soft">
+          The lab hasn&apos;t posted weekly shifts yet. Paint your hours anyway — they
+          are saved, and the head RAs use them to plan the shifts.
         </div>
-      ) : (
-        <>
+      )}
+      <>
           <PaintGrid
             columns={COLUMNS}
             initialBlocks={initialBlocks}
@@ -171,8 +186,7 @@ export default function RaAvailability({
             This is your availability, not your assignment — Randy still sets who staffs
             what. Email him for a one-off swap.
           </p>
-        </>
-      )}
+      </>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireAdminPage } from "@/lib/admin-guard";
+import StationHelpBanner from "@/app/components/StationHelpBanner";
 import { logoutAdmin } from "../actions";
 
 // One tab, one job. Randy's feedback was that the old six-tab layout had "way
@@ -10,11 +11,15 @@ import { logoutAdmin } from "../actions";
 // Roster and Links are both read-mostly and were added for the RAs (Reese,
 // 2026-07-31) — they sit after the pages that set things up, because seeing is
 // the common case and editing is the rare one.
+//
+// Availability (Eddie, 2026-10-13) is every RA's painted week, for the head
+// RAs planning shifts — read-only, after People.
 const NAV = [
   { href: "/admin", label: "Today" },
   { href: "/admin/schedule", label: "Schedule" },
   { href: "/admin/roster", label: "Roster" },
   { href: "/admin/people", label: "People" },
+  { href: "/admin/availability", label: "Availability" },
   { href: "/admin/control", label: "Control Center" },
   { href: "/admin/links", label: "Links" },
 ] as const;
@@ -56,6 +61,7 @@ export default async function AdminLayout({
           </nav>
         </div>
       </header>
+      <StationHelpBanner />
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">{children}</main>
     </div>
   );
