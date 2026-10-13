@@ -8,6 +8,7 @@
 import { getRaSession } from "@/lib/auth";
 import {
   getRaById,
+  getRaAvailabilityBlocks,
   getRaShiftPreferences,
   getSettings,
   listRaLinks,
@@ -20,6 +21,7 @@ import { todayInMadison } from "@/lib/format";
 import { buildWeeklyRoster, sessionsAhead } from "@/lib/roster";
 import LinkList from "@/app/components/LinkList";
 import WeeklyRoster from "@/app/components/WeeklyRoster";
+import { weeklyToPaint } from "@/lib/availability";
 import RaAvailability from "./RaAvailability";
 import RaSignIn from "./RaSignIn";
 import RaTabs from "./RaTabs";
@@ -43,10 +45,11 @@ export default async function RaPage() {
     );
   }
 
-  const [shifts, selectedShiftIds, links, ras, raShifts, slots, settings] =
+  const [shifts, selectedShiftIds, savedBlocks, links, ras, raShifts, slots, settings] =
     await Promise.all([
       listWeeklyShifts(),
       getRaShiftPreferences(ra.id),
+      getRaAvailabilityBlocks(ra.id),
       listRaLinks(),
       listRas(),
       listRaShifts(),
@@ -85,6 +88,7 @@ export default async function RaPage() {
           <RaAvailability
             shifts={shifts}
             selectedShiftIds={selectedShiftIds}
+            savedBlocks={weeklyToPaint(savedBlocks)}
             submittedAt={ra.availabilitySubmittedAt}
           />
         }

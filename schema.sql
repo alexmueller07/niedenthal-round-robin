@@ -320,3 +320,36 @@ ALTER TABLE recordings ADD COLUMN IF NOT EXISTS sha256 TEXT;
 -- identically?" gets answered without trusting anyone's memory.
 ALTER TABLE recordings ADD COLUMN IF NOT EXISTS profile_hash TEXT;
 ALTER TABLE recordings ADD COLUMN IF NOT EXISTS recorder_version TEXT;
+
+-- ===========================================================================
+-- RA weekly availability as painted, and rating-station status (2026-10-13)
+-- ===========================================================================
+
+-- What an RA painted, kept as painted. ra_shift_preferences only records the
+-- weekly shifts the paint fully covers, so time that matched no posted shift
+-- was lost on reload (Eddie). The shift list is still derived from this on
+-- every save, so the schedule page keeps working unchanged.
+CREATE TABLE IF NOT EXISTS ra_availability_blocks (
+  ra_id UUID NOT NULL REFERENCES ras(id) ON DELETE CASCADE,
+  weekday SMALLINT NOT NULL CHECK (weekday BETWEEN 0 AND 6),
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL CHECK (end_time > start_time),
+  PRIMARY KEY (ra_id, weekday, start_time)
+);
+
+-- One row per rating station participant, keyed by the station's own key
+-- (`p-<study ID>`). Lab Suite 1.5.0 removed the email check-in, so a station
+-- can no longer be matched to a scheduled assignment; it reports here instead
+-- and the Control Center shows these rows on their own board.
+CREATE TABLE IF NOT EXISTS station_status (
+  station_key TEXT PRIMARY KEY,
+  label TEXT NOT NULL DEFAULT '',
+  stage TEXT NOT NULL DEFAULT '',
+  percent INTEGER,
+  needs_help BOOLEAN NOT NULL DEFAULT FALSE,
+  help_requested_at TIMESTAMPTZ,
+  help_resolved_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS station_status_updated_idx ON station_status (updated_at);

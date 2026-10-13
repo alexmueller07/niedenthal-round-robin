@@ -29,6 +29,8 @@ import type {
   WeeklyShift,
 } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
+import type { WeeklyBlock } from "./availability";
+import type { StationReport, StationRow } from "./stations";
 import { todayInMadison } from "./format";
 
 function getSql() {
@@ -396,21 +398,65 @@ export async function getRaShiftPreferences(raId: string): Promise<string[]> {
 }
 
 /**
- * Replaces an RA's submitted availability with exactly `shiftIds`, and stamps
- * the submission time so "hasn't responded" stays distinct from "free nowhere".
+ * Replaces an RA's submitted availability: the painted blocks exactly as
+ * painted, plus the shifts they fully cover. Stamps the submission time so
+ * "hasn't responded" stays distinct from "free nowhere".
+ *
+ * One transaction. It used to be a DELETE followed by an INSERT per shift as
+ * separate HTTP calls, so a failure halfway left an RA with part of their week.
  */
-export async function replaceRaShiftPreferences(
+export async function replaceRaAvailability(
   raId: string,
+  blocks: readonly WeeklyBlock[],
   shiftIds: readonly string[]
 ): Promise<void> {
   const sql = getSql();
-  await sql`DELETE FROM ra_shift_preferences WHERE ra_id = ${raId};`;
-  for (const shiftId of shiftIds) {
-    await sql`
-      INSERT INTO ra_shift_preferences (ra_id, shift_id) VALUES (${raId}, ${shiftId})
-      ON CONFLICT DO NOTHING;`;
-  }
-  await sql`UPDATE ras SET availability_submitted_at = now() WHERE id = ${raId};`;
+  const weekdays = blocks.map((b) => b.weekday);
+  const starts = blocks.map((b) => b.startTime);
+  const ends = blocks.map((b) => b.endTime);
+  await sql.transaction([
+    sql`DELETE FROM ra_availability_blocks WHERE ra_id = ${raId};`,
+    sql`
+      INSERT INTO ra_availability_blocks (ra_id, weekday, start_time, end_time)
+      SELECT ${raId}::uuid, t.w, t.s::time, t.e::time
+      FROM unnest(${weekdays}::smallint[], ${starts}::text[], ${ends}::text[]) AS t(w, s, e)
+      ON CONFLICT DO NOTHING;`,
+    sql`DELETE FROM ra_shift_preferences WHERE ra_id = ${raId};`,
+    sql`
+      INSERT INTO ra_shift_preferences (ra_id, shift_id)
+      SELECT ${raId}::uuid, id FROM unnest(${[...shiftIds]}::uuid[]) AS id
+      ON CONFLICT DO NOTHING;`,
+    sql`UPDATE ras SET availability_submitted_at = now() WHERE id = ${raId};`,
+  ]);
+}
+
+function toWeeklyBlock(r: Record<string, unknown>): WeeklyBlock {
+  return {
+    weekday: Number(r.weekday),
+    // TIME comes back as "HH:MM:SS".
+    startTime: asString(r.start_time).slice(0, 5),
+    endTime: asString(r.end_time).slice(0, 5),
+  };
+}
+
+/** One RA's painted week, earliest first. */
+export async function getRaAvailabilityBlocks(raId: string): Promise<WeeklyBlock[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT weekday, start_time, end_time FROM ra_availability_blocks
+    WHERE ra_id = ${raId} ORDER BY weekday, start_time;`;
+  return rows.map(toWeeklyBlock);
+}
+
+/** Every RA's painted week, for the admin availability page. */
+export async function listRaAvailabilityBlocks(): Promise<
+  Array<{ raId: string } & WeeklyBlock>
+> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT ra_id, weekday, start_time, end_time FROM ra_availability_blocks
+    ORDER BY ra_id, weekday, start_time;`;
+  return rows.map((r) => ({ raId: asString(r.ra_id), ...toWeeklyBlock(r) }));
 }
 
 // ------------------------------------------------------------- blackout dates
@@ -1131,4 +1177,78 @@ export async function findLiveAssignmentByEmail(
   return rows.length > 0
     ? { assignmentId: asString(rows[0].id), slotId: asString(rows[0].slot_id) }
     : null;
+}
+
+// ------------------------------------------------------------ station status
+
+function toStationRow(r: Record<string, unknown>): StationRow {
+  return {
+    stationKey: asString(r.station_key),
+    label: asString(r.label),
+    stage: asString(r.stage),
+    percent: r.percent == null ? null : Number(r.percent),
+    needsHelp: Boolean(r.needs_help),
+    helpRequestedAt: r.help_requested_at == null ? null : asTimestamp(r.help_requested_at),
+    updatedAt: asTimestamp(r.updated_at),
+  };
+}
+
+/**
+ * Upserts one station report. `help` true raises the flag (and stamps when),
+ * false lowers it, null leaves it as it is — a routine progress tick must not
+ * clear a request nobody has answered.
+ */
+export async function upsertStationStatus(report: StationReport): Promise<void> {
+  const sql = getSql();
+  const raise = report.help === true;
+  const lower = report.help === false;
+  await sql`
+    INSERT INTO station_status
+      (station_key, label, stage, percent, needs_help, help_requested_at, help_resolved_at, updated_at)
+    VALUES (
+      ${report.stationKey}, ${report.label}, ${report.stage}, ${report.percent}::integer,
+      ${raise}::boolean,
+      CASE WHEN ${raise}::boolean THEN now() ELSE NULL END,
+      CASE WHEN ${lower}::boolean THEN now() ELSE NULL END,
+      now()
+    )
+    ON CONFLICT (station_key) DO UPDATE SET
+      label = EXCLUDED.label,
+      stage = EXCLUDED.stage,
+      percent = EXCLUDED.percent,
+      needs_help = CASE
+        WHEN ${raise}::boolean THEN TRUE
+        WHEN ${lower}::boolean THEN FALSE
+        ELSE station_status.needs_help END,
+      help_requested_at = CASE
+        WHEN ${raise}::boolean AND NOT station_status.needs_help THEN now()
+        ELSE station_status.help_requested_at END,
+      help_resolved_at = CASE
+        WHEN ${lower}::boolean THEN now()
+        ELSE station_status.help_resolved_at END,
+      updated_at = now();`;
+}
+
+export async function getStationStatus(stationKey: string): Promise<StationRow | null> {
+  const sql = getSql();
+  const rows = await sql`SELECT * FROM station_status WHERE station_key = ${stationKey};`;
+  return rows[0] ? toStationRow(rows[0]) : null;
+}
+
+/** Stations heard from in the last `hours`, plus any still asking for help. */
+export async function listRecentStations(hours: number): Promise<StationRow[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT * FROM station_status
+    WHERE updated_at > now() - make_interval(hours => ${hours}::integer) OR needs_help
+    ORDER BY updated_at DESC;`;
+  return rows.map(toStationRow);
+}
+
+/** An RA marking a station's help request handled from the Control Center. */
+export async function resolveStationHelp(stationKey: string): Promise<void> {
+  const sql = getSql();
+  await sql`
+    UPDATE station_status SET needs_help = FALSE, help_resolved_at = now()
+    WHERE station_key = ${stationKey};`;
 }

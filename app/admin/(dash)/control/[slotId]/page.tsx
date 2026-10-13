@@ -15,6 +15,7 @@ import { captureComplete, dyadInRoom, plannedRecordings } from "@/lib/routing";
 import { isStorageConfigured } from "@/lib/storage";
 import ControlWall from "./ControlWall";
 import ProgressBoard from "./ProgressBoard";
+import StationBoard from "@/app/components/StationBoard";
 
 export const dynamic = "force-dynamic";
 
@@ -162,6 +163,8 @@ export default async function ControlSessionPage({
         capture={capture}
         rounds={rounds}
       />
+
+      <StationBoard />
 
       <ProgressBoard
         slotId={slot.id}

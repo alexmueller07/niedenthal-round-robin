@@ -6,6 +6,7 @@ import Link from "next/link";
 import { requireAdminPage } from "@/lib/admin-guard";
 import { formatDate, formatDateShort, formatTimeRange } from "@/lib/format";
 import { loadFullState } from "@/lib/snapshot";
+import StationBoard from "@/app/components/StationBoard";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +74,8 @@ export default async function ControlCenterPage() {
           </div>
         )}
       </section>
+
+      <StationBoard />
 
       {upcoming.length > 0 && (
         <section>

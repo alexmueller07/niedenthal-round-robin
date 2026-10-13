@@ -117,6 +117,42 @@ npm run lint
 npm run build
 ```
 
+### RA availability and rating stations (2026-10-13)
+
+- RAs' painted weekly availability is stored as painted
+  (`ra_availability_blocks`), not just as the shifts it covers. Admins see it
+  all on **Availability**.
+- Lab Suite 1.5.0 rating stations report to `/api/pps/station` under their own
+  key (`p-<study ID>`) — no email involved. Their "Need help?" requests show
+  as a banner on every admin page and on **Control Center → Rating stations**,
+  where **Resolve** clears them on the station too. `/api/pps/progress` stays
+  for older stations.
+
+### Moving the database (wisc.edu)
+
+`scripts/migrate-db.mjs` copies every table from one Postgres to another and
+then checks each table's row count and a content checksum on both sides:
+
+```powershell
+$env:FROM_DATABASE_URL = "<current>"; $env:TO_DATABASE_URL = "<new>"
+node scripts/migrate-db.mjs            # dry run: what would be copied
+node scripts/migrate-db.mjs --yes      # copy + verify (refuses a non-empty target without --replace)
+node scripts/migrate-db.mjs --verify   # compare only, e.g. just before switching over
+```
+
+Recordings are not in the database (they live on the Research Drive), so
+nothing else has to move.
+
+### Qualtrics interest form → availability slots
+
+```powershell
+python scripts/qualtrics/availability_slots.py "<export>.csv"
+```
+
+Writes `slots.csv`, `people.csv`, `needs_check.csv` and `summary.md` into
+`<export>-slots/` beside the export. They contain names and emails: keep them
+on the Research Drive. Tests: `python -m pytest scripts/qualtrics`.
+
 ## Deployment
 
 Vercel + Neon Postgres (Marketplace). Set the env vars from `.env.example` in

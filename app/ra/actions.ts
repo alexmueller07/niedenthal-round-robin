@@ -13,8 +13,10 @@ import {
   getRaById,
   getRaByNetid,
   listWeeklyShifts,
-  replaceRaShiftPreferences,
+  replaceRaAvailability,
 } from "@/lib/db";
+import { validateWeeklyBlocks, weeklyToPaint } from "@/lib/availability";
+import { shiftsCoveredBy } from "@/lib/schedule";
 
 /**
  * A NetID as the roster spells it: no domain, lower case. An RA who types
@@ -61,8 +63,15 @@ export async function signOutRa(): Promise<void> {
   revalidatePath("/ra");
 }
 
-/** Replaces the signed-in RA's submitted availability with exactly `shiftIds`. */
-export async function saveRaAvailability(shiftIds: string[]): Promise<RaActionResult> {
+/**
+ * Replaces the signed-in RA's availability with exactly what they painted.
+ *
+ * The painted blocks are the record (Eddie, 2026-10-13: time that lined up
+ * with no posted shift used to vanish on reload). Which shifts that covers is
+ * worked out here, from the shifts as they are now, rather than trusted from
+ * the browser.
+ */
+export async function saveRaAvailability(painted: unknown): Promise<RaActionResult> {
   const raId = await getRaSession();
   if (!raId) return { ok: false, error: "Your session expired — please sign in again." };
 
@@ -71,17 +80,13 @@ export async function saveRaAvailability(shiftIds: string[]): Promise<RaActionRe
     return { ok: false, error: "This RA account is no longer active." };
   }
 
-  if (!Array.isArray(shiftIds) || shiftIds.some((id) => typeof id !== "string")) {
-    return { ok: false, error: "Invalid selection." };
-  }
+  const checked = validateWeeklyBlocks(painted);
+  if (!checked.ok) return { ok: false, error: checked.error };
 
-  // Only accept ids that are real, active shifts.
-  const valid = new Set(
-    (await listWeeklyShifts()).filter((s) => s.active).map((s) => s.id)
-  );
-  const filtered = [...new Set(shiftIds)].filter((id) => valid.has(id));
+  const active = (await listWeeklyShifts()).filter((s) => s.active);
+  const covered = shiftsCoveredBy(active, weeklyToPaint(checked.blocks)).map((s) => s.id);
 
-  await replaceRaShiftPreferences(raId, filtered);
+  await replaceRaAvailability(raId, checked.blocks, covered);
   revalidatePath("/ra");
   revalidatePath("/admin", "layout");
   return { ok: true };
